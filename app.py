@@ -123,4 +123,37 @@ for age in range(current_age, 101):
             else: high = mid
         
         draw_sipp_gross = min(temp_sipp, high)
-        tax_paid = max(0, draw
+        tax_paid = max(0, draw_sipp_gross - net_final_gap)
+        temp_sipp -= draw_sipp_gross
+
+    data.append({
+        "Age": age, "Total Wealth": round(temp_isa + temp_sipp),
+        "ISA": round(temp_isa), "SIPP": round(temp_sipp),
+        "DB Income": round(db_income), "State Pension": round(sp_rec),
+        "ISA Draw": round(draw_isa), "SIPP (Net)": round(net_final_gap),
+        "Tax Paid": round(tax_paid), "Target": round(target_net)
+    })
+    temp_spend *= (1 + inflation_rate); temp_sp *= (1 + inflation_rate)
+
+df = pd.DataFrame(data)
+
+# --- 4. METRICS & VISUALS ---
+m1, m2, m3 = st.columns(3)
+m1.metric("Final Wealth (Age 100)", f"£{df['Total Wealth'].iloc[-1]:,}")
+m2.metric("Total Tax Bill", f"£{df['Tax Paid'].sum():,}")
+m3.metric("Plan Status", "SECURE" if df['Total Wealth'].iloc[-1] > 0 else "EXHAUSTED", 
+          delta_color="normal" if df['Total Wealth'].iloc[-1] > 0 else "inverse")
+
+st.subheader("Annual Income Stack vs Tax Drag")
+fig = go.Figure()
+fig.add_trace(go.Bar(x=df['Age'], y=df['DB Income'], name='DB Pension', marker_color='#9467bd'))
+fig.add_trace(go.Bar(x=df['Age'], y=df['State Pension'], name='State Pension', marker_color='#2ca02c'))
+fig.add_trace(go.Bar(x=df['Age'], y=df['ISA Draw'], name='ISA/Lump Sum', marker_color='#1f77b4'))
+fig.add_trace(go.Bar(x=df['Age'], y=df['SIPP (Net)'], name='SIPP (Net)', marker_color='#ff7f0e'))
+fig.add_trace(go.Scatter(x=df['Age'], y=df['Tax Paid'], name='Tax (HMRC)', line=dict(color='#d62728', width=2)))
+fig.update_layout(barmode='stack', hovermode="x unified")
+st.plotly_chart(fig, use_container_width=True)
+
+st.subheader("Asset Depletion")
+st.line_chart(df.set_index("Age")[["ISA", "SIPP", "Total Wealth"]])
+st.dataframe(df)
