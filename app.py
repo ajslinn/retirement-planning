@@ -23,7 +23,7 @@ data = []
 temp_isa, temp_sipp = isa_bal, sipp_bal
 temp_spend, temp_sp = annual_spend, state_pension_amt
 
-for age in range(current_age, 100):
+for age in range(current_age, 101):
     # Growth happens at the start of the year
     temp_isa *= (1 + growth_rate)
     temp_sipp *= (1 + growth_rate)
@@ -85,6 +85,8 @@ fig.add_trace(go.Bar(x=df['Age'], y=df['SIPP Draw (Net)'], name='SIPP (Net)', ma
 fig.add_trace(go.Scatter(x=df['Age'], y=df['Tax Paid'], name='Tax Paid (HMRC)', line=dict(color='#d62728', width=2)))
 
 fig.update_layout(barmode='stack', xaxis_title="Age", yaxis_title="£ Amount")
+# Adds a dotted horizontal line at 0 to see if wealth is exhausted
+fig.add_hline(y=0, line_dash="dash", line_color="grey")
 st.plotly_chart(fig, use_container_width=True)
 
 st.subheader("Wealth Over Time")
