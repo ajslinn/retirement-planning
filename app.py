@@ -48,6 +48,13 @@ growth_rate = st.sidebar.slider("Investment Growth (%)", 0.0, 10.0, 5.0) / 100
 inflation_rate = st.sidebar.slider("Inflation (%)", 0.0, 5.0, 2.5) / 100
 
 # --- CALCULATION ENGINE ---
+# --- 2026/27 TAX CONSTANTS ---
+PERSONAL_ALLOWANCE = 12570
+BASIC_RATE_LIMIT = 50270  # (Allowance + 37,700)
+BASIC_RATE = 0.20
+HIGHER_RATE = 0.40
+
+# --- UPDATED CALCULATION ENGINE ---
 data = []
 temp_isa = isa_bal
 temp_sipp = sipp_bal
@@ -55,77 +62,68 @@ temp_spend = annual_spend
 temp_state_pension = state_pension_amt
 
 for age in range(current_age, 96):
-    # 1. Grow Assets
     temp_isa *= (1 + growth_rate)
     temp_sipp *= (1 + growth_rate)
     
-    income_needed = 0
-    state_pension_received = 0
+    state_pension_received = temp_state_pension if age >= state_pension_age else 0
+    remaining_to_fund = temp_spend
     
-    # 2. Drawdown Logic
-    if age >= retirement_age:
-        # Determine how much we need after State Pension
-        if age >= state_pension_age:
-            state_pension_received = temp_state_pension
-            income_needed = max(0, temp_spend - state_pension_received)
-        else:
-            income_needed = temp_spend
-            
-        # Spend ISA first (Tax-Free Bridge)
-        draw_isa = min(temp_isa, income_needed)
-        temp_isa -= draw_isa
-        income_needed -= draw_isa
+    # 1. Use State Pension first (it's "income" that arrives automatically)
+    remaining_to_fund = max(0, remaining_to_fund - state_pension_received)
+    
+    # 2. Use ISA next (Tax-Free Bridge - no tax calculation needed)
+    draw_isa = min(temp_isa, remaining_to_fund)
+    temp_isa -= draw_isa
+    remaining_to_fund -= draw_isa
+    
+    # 3. Use SIPP for the final gap (Grossing up for Tax)
+    draw_sipp = 0
+    tax_paid = 0
+    
+    if remaining_to_fund > 0:
+        # We need 'remaining_to_fund' as NET income.
+        # We must calculate the GROSS withdrawal required to leave that NET amount.
+        # This assumes State Pension has already used up some/all of the Personal Allowance.
         
-        # Spend SIPP second
-        if income_needed > 0:
-            draw_sipp = min(temp_sipp, income_needed)
-            temp_sipp -= draw_sipp
+        target_net = remaining_to_fund
+        current_taxable_income = state_pension_received
+        
+        # Simple gross-up logic for Basic Rate (20%)
+        # If total income stays below £50,270:
+        if (current_taxable_income + (target_net / 0.8)) <= BASIC_RATE_LIMIT:
+            # How much of the allowance is left?
+            allowance_left = max(0, PERSONAL_ALLOWANCE - current_taxable_income)
             
-    # 3. Inflation adjustment for next year
-    temp_spend *= (1 + inflation_rate)
-    temp_state_pension *= (1 + inflation_rate) # State Pension grows with inflation/Triple Lock
-    
+            if target_net <= allowance_left:
+                draw_sipp = target_net # No tax
+            else:
+                taxable_part_net = target_net - allowance_left
+                gross_taxable_part = taxable_part_net / (1 - BASIC_RATE)
+                draw_sipp = allowance_left + gross_taxable_part
+                tax_paid = draw_sipp - target_net
+        else:
+            # If it hits Higher Rate, we'd need more complex math, 
+            # but for this prototype, we'll cap at 20% or 40% estimation
+            draw_sipp = target_net / (1 - BASIC_RATE) 
+            tax_paid = draw_sipp - target_net
+
+        temp_sipp -= draw_sipp
+
+    # 4. Store Data
     data.append({
         "Age": age,
         "ISA": round(temp_isa),
         "SIPP": round(temp_sipp),
-        "State Pension Rec'd": round(state_pension_received),
+        "State Pension": round(state_pension_received),
+        "Tax Paid": round(tax_paid),
         "Total Wealth": round(temp_isa + temp_sipp)
     })
-
-df = pd.DataFrame(data)
-
-# --- REFINED DRAWDOWN WITH TAX ---
-# Standard 2026/27 Personal Allowance
-personal_allowance = 12570 
-
-# Inside your 'for age in range...' loop:
-if age >= retirement_age:
-    # 1. State Pension is always taxable 'first'
-    taxable_income = state_pension_received
     
-    # 2. How much more do we need to reach the target spend?
-    gap = temp_spend - state_pension_received
-    
-    # 3. ISA fills the gap tax-free
-    draw_isa = min(temp_isa, gap)
-    temp_isa -= draw_isa
-    gap -= draw_isa
-    
-    # 4. SIPP fills the remaining gap (THIS PART IS TAXED)
-    if gap > 0:
-        # We need 'gap' amount *after* tax. 
-        # For the prototype, we'll assume a flat 20% tax if total income > £12,570
-        total_taxable = state_pension_received + gap
-        
-        if total_taxable > personal_allowance:
-            # Simple 20% tax on the portion above allowance
-            tax_bill = (total_taxable - personal_allowance) * 0.20
-            draw_sipp = gap + tax_bill
-        else:
-            draw_sipp = gap
-            
-        temp_sipp -= draw_sipp
+    # Inflation adjustments
+    temp_spend *= (1 + inflation_rate)
+    temp_state_pension *= (1 + inflation_rate)
+
+
 
 # --- VISUALIZATION ---
 st.subheader("1. Wealth Projection (Total Capital)")
