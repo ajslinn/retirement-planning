@@ -1,135 +1,91 @@
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
 
-# --- 1. APP CONFIGURATION ---
-st.set_page_config(page_title="Retirement Planner Prototype", layout="wide")
-st.title("🚀 Retirement Planner Prototype")
-st.markdown("Automated wealth and tax modeling based on 2026/27 UK tax references.")
-
-# --- 2. SIDEBAR INPUTS ---
-st.sidebar.header("Current Financials")
+# --- 1. CONFIG & INPUTS ---
+st.set_page_config(page_title="AJS Retirement Prototype", layout="wide")
+st.sidebar.header("Inputs")
 current_age = st.sidebar.number_input("Current Age", value=55)
-retirement_age = st.sidebar.number_input("Planned Retirement Age", value=60)
-isa_bal = st.sidebar.number_input("Total ISA Balance (£)", value=100000)
-sipp_bal = st.sidebar.number_input("Total SIPP Balance (£)", value=400000)
-
-st.sidebar.header("State Pension")
+retirement_age = st.sidebar.number_input("Retirement Age", value=60)
+isa_bal = st.sidebar.number_input("ISA Balance (£)", value=100000)
+sipp_bal = st.sidebar.number_input("SIPP Balance (£)", value=400000)
 state_pension_age = st.sidebar.slider("State Pension Age", 66, 68, 67)
-# 2026/27 forecast is £241.30/week (~£12,548/year)
 state_pension_amt = st.sidebar.number_input("Annual State Pension (£)", value=12548)
-
-st.sidebar.header("Assumptions")
-annual_spend = st.sidebar.slider("Target Annual Spend (£)", 20000, 100000, 35000)
-growth_rate = st.sidebar.slider("Investment Growth (%)", 0.0, 10.0, 5.0) / 100
+annual_spend = st.sidebar.slider("Target Annual Spend (Net) (£)", 20000, 100000, 35000)
+growth_rate = st.sidebar.slider("Growth (%)", 0.0, 10.0, 5.0) / 100
 inflation_rate = st.sidebar.slider("Inflation (%)", 0.0, 5.0, 2.5) / 100
 
-# --- 3. TAX CONSTANTS (2026/27) ---
 PERSONAL_ALLOWANCE = 12570
 BASIC_RATE = 0.20
 
-# --- 4. CALCULATION ENGINE ---
+# --- 2. THE CALCULATION LOOP ---
 data = []
-temp_isa = isa_bal
-temp_sipp = sipp_bal
-temp_spend = annual_spend
-temp_state_pension = state_pension_amt
+temp_isa, temp_sipp = isa_bal, sipp_bal
+temp_spend, temp_sp = annual_spend, state_pension_amt
 
-for age in range(current_age, 100):
-    # Grow Assets
+for age in range(current_age, 96):
+    # Growth happens at the start of the year
     temp_isa *= (1 + growth_rate)
     temp_sipp *= (1 + growth_rate)
     
-    state_pension_received = temp_state_pension if age >= state_pension_age else 0
-    net_needed = temp_spend
+    sp_rec = temp_sp if age >= state_pension_age else 0
+    target_net = temp_spend if age >= retirement_age else 0
     
-    # Logic: State Pension hits the bank account first
-    net_needed = max(0, net_needed - state_pension_received)
+    # 1. State Pension hits the account (taxable)
+    net_after_sp = max(0, target_net - sp_rec)
     
-    # Logic: ISA fills the gap next (Tax-Free)
-    draw_isa = min(temp_isa, net_needed)
+    # 2. ISA fills the gap next (tax-free)
+    draw_isa = min(temp_isa, net_after_sp)
     temp_isa -= draw_isa
-    net_needed -= draw_isa
+    net_after_isa = max(0, net_after_sp - draw_isa)
     
-    # Logic: SIPP fills remaining gap (Taxable)
-    draw_sipp = 0
+    # 3. SIPP fills the remaining gap (taxable)
+    draw_sipp_gross = 0
     tax_paid = 0
     
-    if net_needed > 0:
-        # We need to withdraw enough to cover the tax bill
-        # State Pension usually eats up the Personal Allowance first
-        taxable_income_so_far = state_pension_received
+    if net_after_isa > 0:
+        # We need to draw enough to pay the tax and leave 'net_after_isa' in your pocket
+        # SP used the allowance first
+        allowance_left = max(0, PERSONAL_ALLOWANCE - sp_rec)
         
-        # How much tax-free allowance is left?
-        allowance_left = max(0, PERSONAL_ALLOWANCE - taxable_income_so_far)
-        
-        if net_needed <= allowance_left:
-            draw_sipp = net_needed
+        if net_after_isa <= allowance_left:
+            draw_sipp_gross = net_after_isa
         else:
-            taxable_portion_net = net_needed - allowance_left
-            # Gross up for 20% basic rate tax
-            gross_taxable = taxable_portion_net / (1 - BASIC_RATE)
-            draw_sipp = allowance_left + gross_taxable
-            tax_paid = draw_sipp - net_needed
+            # We need to gross up the portion that exceeds the allowance
+            taxable_net_needed = net_after_isa - allowance_left
+            gross_taxable = taxable_net_needed / (1 - BASIC_RATE)
+            draw_sipp_gross = allowance_left + gross_taxable
+            tax_paid = draw_sipp_gross - net_after_isa
             
-        temp_sipp -= draw_sipp
+        # Ensure we don't draw more than we have
+        draw_sipp_gross = min(temp_sipp, draw_sipp_gross)
+        temp_sipp -= draw_sipp_gross
 
-    # Append results
     data.append({
-        "Age": age,
-        "ISA": round(temp_isa),
-        "SIPP": round(temp_sipp),
-        "State Pension": round(state_pension_received),
-        "Tax Paid": round(tax_paid),
-        "Net Spend": round(temp_spend),
+        "Age": age, "ISA": round(temp_isa), "SIPP": round(temp_sipp),
+        "ISA Draw": round(draw_isa), "SIPP Draw (Net)": round(draw_sipp_gross - tax_paid),
+        "State Pension": round(sp_rec), "Tax Paid": round(tax_paid),
+        "Total Net Income": round(sp_rec + draw_isa + (draw_sipp_gross - tax_paid)),
         "Total Wealth": round(temp_isa + temp_sipp)
     })
     
-    # Adjust for inflation for next loop
     temp_spend *= (1 + inflation_rate)
-    temp_state_pension *= (1 + inflation_rate)
+    temp_sp *= (1 + inflation_rate)
 
-import plotly.graph_objects as go
-
-# --- 5. VISUALIZATIONS (PLOTLY VERSION) ---
 df = pd.DataFrame(data)
 
-# Calculate Drawdowns for charting
-df['ISA Drawdown'] = df['ISA'].diff().fillna(0).apply(lambda x: abs(x) if x < 0 else 0)
-df['SIPP Drawdown'] = df['SIPP'].diff().fillna(0).apply(lambda x: abs(x) if x < 0 else 0)
-
-st.subheader("1. Annual Income Flow vs Tax")
-
-# Create the figure
+# --- 3. THE PLOTLY CHART ---
+st.subheader("Annual Income Stack vs Target Spend")
 fig = go.Figure()
-
-# Add Stacked Bars for Income
 fig.add_trace(go.Bar(x=df['Age'], y=df['State Pension'], name='State Pension', marker_color='#2ca02c'))
-fig.add_trace(go.Bar(x=df['Age'], y=df['ISA Drawdown'], name='ISA Drawdown (Tax-Free)', marker_color='#1f77b4'))
-fig.add_trace(go.Bar(x=df['Age'], y=df['SIPP Drawdown'], name='SIPP Drawdown', marker_color='#ff7f0e'))
+fig.add_trace(go.Bar(x=df['Age'], y=df['ISA Draw'], name='ISA (Bridge)', marker_color='#1f77b4'))
+fig.add_trace(go.Bar(x=df['Age'], y=df['SIPP Draw (Net)'], name='SIPP (Net)', marker_color='#ff7f0e'))
 
-# Add the Line Overlay for Tax
-fig.add_trace(go.Scatter(
-    x=df['Age'], 
-    y=df['Tax Paid'], 
-    name='Annual Tax Paid', 
-    line=dict(color='#d62728', width=3),
-    mode='lines+markers'
-))
+# Red line for Tax
+fig.add_trace(go.Scatter(x=df['Age'], y=df['Tax Paid'], name='Tax Paid (HMRC)', line=dict(color='#d62728', width=2)))
 
-# Update layout to stack bars
-fig.update_layout(
-    barmode='stack',
-    xaxis_title="Age",
-    yaxis_title="Amount (£)",
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-    hovermode="x unified"
-)
-
+fig.update_layout(barmode='stack', xaxis_title="Age", yaxis_title="£ Amount")
 st.plotly_chart(fig, use_container_width=True)
 
-# --- THE REST OF YOUR APP (Wealth Chart & Data Table) ---
-st.subheader("2. Total Wealth Projection")
+st.subheader("Wealth Over Time")
 st.line_chart(df.set_index("Age")[["ISA", "SIPP", "Total Wealth"]])
-
-st.subheader("3. Year-by-Year Data")
-st.dataframe(df, use_container_width=True)
