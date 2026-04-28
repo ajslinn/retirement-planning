@@ -57,19 +57,17 @@ for age in range(current_age, 101):
     current_target_net = temp_spend # The inflation-adjusted base
     
     if age >= phase_2_age:
-        # Apply both drops or just the cumulative effect
         current_target_net = temp_spend * (1 - phase_1_drop) * (1 - phase_2_drop)
     elif age >= phase_1_age:
         current_target_net = temp_spend * (1 - phase_1_drop)
         
-    # If not retired yet, spend is 0
+    # Apply retirement check
     if age < retirement_age:
         target_net = 0
     else:
         target_net = current_target_net
-    
+   # --- NOW PROCEED TO DRAWDOWN ---
     sp_rec = temp_sp if age >= state_pension_age else 0
-    target_net = temp_spend if age >= retirement_age else 0
     
     # 1. State Pension 
     net_after_sp = max(0, target_net - sp_rec)
