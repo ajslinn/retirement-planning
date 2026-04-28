@@ -88,23 +88,48 @@ for age in range(current_age, 100):
     temp_spend *= (1 + inflation_rate)
     temp_state_pension *= (1 + inflation_rate)
 
-# --- 5. VISUALIZATIONS ---
+import plotly.graph_objects as go
+
+# --- 5. VISUALIZATIONS (PLOTLY VERSION) ---
 df = pd.DataFrame(data)
 
-# Create 'Drawdown' columns for the chart by looking at the year-to-year change
-# We use .diff() to see how much the pot dropped, and .abs() to make it a positive number
-df['ISA Drawdown'] = df['ISA'].diff().fillna(0)
-df['ISA Drawdown'] = df['ISA Drawdown'].apply(lambda x: abs(x) if x < 0 else 0)
+# Calculate Drawdowns for charting
+df['ISA Drawdown'] = df['ISA'].diff().fillna(0).apply(lambda x: abs(x) if x < 0 else 0)
+df['SIPP Drawdown'] = df['SIPP'].diff().fillna(0).apply(lambda x: abs(x) if x < 0 else 0)
 
-df['SIPP Drawdown'] = df['SIPP'].diff().fillna(0)
-df['SIPP Drawdown'] = df['SIPP Drawdown'].apply(lambda x: abs(x) if x < 0 else 0)
+st.subheader("1. Annual Income Flow vs Tax")
 
-st.subheader("1. Wealth Projection (Total Capital)")
+# Create the figure
+fig = go.Figure()
+
+# Add Stacked Bars for Income
+fig.add_trace(go.Bar(x=df['Age'], y=df['State Pension'], name='State Pension', marker_color='#2ca02c'))
+fig.add_trace(go.Bar(x=df['Age'], y=df['ISA Drawdown'], name='ISA Drawdown (Tax-Free)', marker_color='#1f77b4'))
+fig.add_trace(go.Bar(x=df['Age'], y=df['SIPP Drawdown'], name='SIPP Drawdown', marker_color='#ff7f0e'))
+
+# Add the Line Overlay for Tax
+fig.add_trace(go.Scatter(
+    x=df['Age'], 
+    y=df['Tax Paid'], 
+    name='Annual Tax Paid', 
+    line=dict(color='#d62728', width=3),
+    mode='lines+markers'
+))
+
+# Update layout to stack bars
+fig.update_layout(
+    barmode='stack',
+    xaxis_title="Age",
+    yaxis_title="Amount (£)",
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    hovermode="x unified"
+)
+
+st.plotly_chart(fig, use_container_width=True)
+
+# --- THE REST OF YOUR APP (Wealth Chart & Data Table) ---
+st.subheader("2. Total Wealth Projection")
 st.line_chart(df.set_index("Age")[["ISA", "SIPP", "Total Wealth"]])
 
-st.subheader("2. Annual Income Flow (Where the money comes from)")
-# This now shows the full "Waterfall": Pension + Savings + Tax
-st.bar_chart(df.set_index("Age")[["State Pension", "ISA Drawdown", "SIPP Drawdown", "Tax Paid"]])
-
-st.subheader("3. Data Breakdown")
+st.subheader("3. Year-by-Year Data")
 st.dataframe(df, use_container_width=True)
