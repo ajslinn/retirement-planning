@@ -23,6 +23,13 @@ annual_spend = st.sidebar.slider("Target Annual Spend (Net) (£)", 20000, 100000
 growth_rate = st.sidebar.slider("Growth (%)", 0.0, 10.0, 5.0) / 100
 inflation_rate = st.sidebar.slider("Inflation (%)", 0.0, 5.0, 2.5) / 100
 
+st.sidebar.header("Spending Phases")
+phase_1_age = st.sidebar.slider("Age for Phase 1 Drop", 60, 90, 75)
+phase_1_drop = st.sidebar.slider("Phase 1 Spending Drop (%)", 0, 50, 10) / 100
+
+phase_2_age = st.sidebar.slider("Age for Phase 2 Drop", 70, 100, 85)
+phase_2_drop = st.sidebar.slider("Phase 2 Spending Drop (%)", 0, 50, 10) / 100
+
 PERSONAL_ALLOWANCE = 12570
 BASIC_RATE = 0.20
 LSA_LIMIT = 268275 # Lifetime Lump Sum Allowance
@@ -34,6 +41,7 @@ temp_spend, temp_sp = annual_spend, state_pension_amt
 lsa_used = 0
 
 for age in range(current_age, 101):
+
     # Growth
     temp_isa *= (1 + growth_rate)
     temp_sipp *= (1 + growth_rate)
@@ -45,6 +53,21 @@ for age in range(current_age, 101):
         temp_isa += lump_sum_amt # Move it to the tax-free pot
         lsa_used += lump_sum_amt
 
+    # Dynamic Spending Logic
+    current_target_net = temp_spend # The inflation-adjusted base
+    
+    if age >= phase_2_age:
+        # Apply both drops or just the cumulative effect
+        current_target_net = temp_spend * (1 - phase_1_drop) * (1 - phase_2_drop)
+    elif age >= phase_1_age:
+        current_target_net = temp_spend * (1 - phase_1_drop)
+        
+    # If not retired yet, spend is 0
+    if age < retirement_age:
+        target_net = 0
+    else:
+        target_net = current_target_net
+    
     sp_rec = temp_sp if age >= state_pension_age else 0
     target_net = temp_spend if age >= retirement_age else 0
     
