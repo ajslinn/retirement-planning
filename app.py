@@ -2,8 +2,8 @@ import streamlit as st
 import pandas as pd
 
 # --- 1. APP CONFIGURATION ---
-st.set_page_config(page_title="AJS Retirement Prototype", layout="wide")
-st.title("🚀 AJS 2026 Retirement Calculator")
+st.set_page_config(page_title="Retirement Planner Prototype", layout="wide")
+st.title("🚀 Retirement Planner Prototype")
 st.markdown("Automated wealth and tax modeling based on 2026/27 UK tax references.")
 
 # --- 2. SIDEBAR INPUTS ---
