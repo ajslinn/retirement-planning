@@ -23,7 +23,7 @@ data = []
 temp_isa, temp_sipp = isa_bal, sipp_bal
 temp_spend, temp_sp = annual_spend, state_pension_amt
 
-for age in range(current_age, 96):
+for age in range(current_age, 100):
     # Growth happens at the start of the year
     temp_isa *= (1 + growth_rate)
     temp_sipp *= (1 + growth_rate)
