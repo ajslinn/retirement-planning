@@ -95,6 +95,38 @@ for age in range(current_age, 96):
 
 df = pd.DataFrame(data)
 
+# --- REFINED DRAWDOWN WITH TAX ---
+# Standard 2026/27 Personal Allowance
+personal_allowance = 12570 
+
+# Inside your 'for age in range...' loop:
+if age >= retirement_age:
+    # 1. State Pension is always taxable 'first'
+    taxable_income = state_pension_received
+    
+    # 2. How much more do we need to reach the target spend?
+    gap = temp_spend - state_pension_received
+    
+    # 3. ISA fills the gap tax-free
+    draw_isa = min(temp_isa, gap)
+    temp_isa -= draw_isa
+    gap -= draw_isa
+    
+    # 4. SIPP fills the remaining gap (THIS PART IS TAXED)
+    if gap > 0:
+        # We need 'gap' amount *after* tax. 
+        # For the prototype, we'll assume a flat 20% tax if total income > £12,570
+        total_taxable = state_pension_received + gap
+        
+        if total_taxable > personal_allowance:
+            # Simple 20% tax on the portion above allowance
+            tax_bill = (total_taxable - personal_allowance) * 0.20
+            draw_sipp = gap + tax_bill
+        else:
+            draw_sipp = gap
+            
+        temp_sipp -= draw_sipp
+
 # --- VISUALIZATION ---
 st.subheader("1. Wealth Projection (Total Capital)")
 st.line_chart(df.set_index("Age")[["ISA", "SIPP", "Total Wealth"]])
