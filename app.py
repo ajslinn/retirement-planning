@@ -96,13 +96,14 @@ for age in range(current_age, 96):
 df = pd.DataFrame(data)
 
 # --- VISUALIZATION ---
-st.subheader("Wealth Projection & State Pension Impact")
-# Show how wealth changes
+st.subheader("1. Wealth Projection (Total Capital)")
 st.line_chart(df.set_index("Age")[["ISA", "SIPP", "Total Wealth"]])
 
-# Show a bar chart of income sources
-st.subheader("Income Sources per Year")
-st.bar_chart(df.set_index("Age")[["State Pension Rec'd"]])
+st.subheader("2. Annual Income Sources (The 'Bridge' vs 'Pension')")
+# We need to calculate how much was drawn from ISA and SIPP for this chart
+# Let's add columns for better visualization
+df['ISA Drawdown'] = df['ISA'].diff().fillna(0).abs()
+df['SIPP Drawdown'] = df['SIPP'].diff().fillna(0).abs()
 
-st.subheader("Year-by-Year Breakdown")
-st.dataframe(df, use_container_width=True)
+# This chart shows exactly where your spending money is coming from each year
+st.bar_chart(df.set_index("Age")[["State Pension Rec'd", "ISA Drawdown", "SIPP Drawdown"]])
