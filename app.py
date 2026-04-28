@@ -91,12 +91,20 @@ for age in range(current_age, 100):
 # --- 5. VISUALIZATIONS ---
 df = pd.DataFrame(data)
 
+# Create 'Drawdown' columns for the chart by looking at the year-to-year change
+# We use .diff() to see how much the pot dropped, and .abs() to make it a positive number
+df['ISA Drawdown'] = df['ISA'].diff().fillna(0)
+df['ISA Drawdown'] = df['ISA Drawdown'].apply(lambda x: abs(x) if x < 0 else 0)
+
+df['SIPP Drawdown'] = df['SIPP'].diff().fillna(0)
+df['SIPP Drawdown'] = df['SIPP Drawdown'].apply(lambda x: abs(x) if x < 0 else 0)
+
 st.subheader("1. Wealth Projection (Total Capital)")
 st.line_chart(df.set_index("Age")[["ISA", "SIPP", "Total Wealth"]])
 
-st.subheader("2. Annual Income Flow (Including Tax Hit)")
-# Show the components of your spending money + the tax paid to HMRC
-st.bar_chart(df.set_index("Age")[["State Pension", "Tax Paid"]])
+st.subheader("2. Annual Income Flow (Where the money comes from)")
+# This now shows the full "Waterfall": Pension + Savings + Tax
+st.bar_chart(df.set_index("Age")[["State Pension", "ISA Drawdown", "SIPP Drawdown", "Tax Paid"]])
 
 st.subheader("3. Data Breakdown")
 st.dataframe(df, use_container_width=True)
