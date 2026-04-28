@@ -34,7 +34,7 @@ temp_sipp = sipp_bal
 temp_spend = annual_spend
 temp_state_pension = state_pension_amt
 
-for age in range(current_age, 96):
+for age in range(current_age, 100):
     # Grow Assets
     temp_isa *= (1 + growth_rate)
     temp_sipp *= (1 + growth_rate)
