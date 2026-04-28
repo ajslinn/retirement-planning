@@ -99,6 +99,7 @@ for age in range(current_age, 101):
         "ISA Draw": round(draw_isa), "SIPP Draw (Net)": round(draw_sipp_gross - tax_paid),
         "State Pension": round(sp_rec), "Tax Paid": round(tax_paid),
         "Total Wealth": round(temp_isa + temp_sipp)
+        "Target Spend": round(target_net)
     })
     
     temp_spend *= (1 + inflation_rate)
