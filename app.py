@@ -28,14 +28,19 @@ import pandas as pd
 # --- APP CONFIGURATION ---
 st.set_page_config(page_title="AJS Retirement Prototype", layout="wide")
 st.title("🚀 AJS 2026 Retirement Calculator")
-st.markdown("Automated wealth modeling based on your 2026 spreadsheet logic.")
+st.markdown("Automated wealth modeling including State Pension logic.")
 
 # --- SIDEBAR INPUTS ---
 st.sidebar.header("Current Financials")
 current_age = st.sidebar.number_input("Current Age", value=55)
-retirement_age = st.sidebar.number_input("Retirement Age", value=60)
+retirement_age = st.sidebar.number_input("Planned Retirement Age", value=60)
 isa_bal = st.sidebar.number_input("Total ISA Balance (£)", value=100000)
 sipp_bal = st.sidebar.number_input("Total SIPP Balance (£)", value=400000)
+
+st.sidebar.header("State Pension")
+state_pension_age = st.sidebar.slider("State Pension Age", 66, 68, 67)
+# 2026/27 full rate is £12,548
+state_pension_amt = st.sidebar.number_input("Annual State Pension (£)", value=12548)
 
 st.sidebar.header("Assumptions")
 annual_spend = st.sidebar.slider("Desired Annual Spend (£)", 20000, 100000, 35000)
@@ -47,43 +52,57 @@ data = []
 temp_isa = isa_bal
 temp_sipp = sipp_bal
 temp_spend = annual_spend
+temp_state_pension = state_pension_amt
 
 for age in range(current_age, 96):
-    # 1. Grow Assets (Vanguard Style Outlook)
+    # 1. Grow Assets
     temp_isa *= (1 + growth_rate)
     temp_sipp *= (1 + growth_rate)
     
-    # 2. Drawdown Logic (The "Bridge" Strategy)
-    # If retired, start spending
+    income_needed = 0
+    state_pension_received = 0
+    
+    # 2. Drawdown Logic
     if age >= retirement_age:
-        remaining_to_fund = temp_spend
-        
-        # Spend ISA first (Tax-Free)
-        draw_isa = min(temp_isa, remaining_to_fund)
+        # Determine how much we need after State Pension
+        if age >= state_pension_age:
+            state_pension_received = temp_state_pension
+            income_needed = max(0, temp_spend - state_pension_received)
+        else:
+            income_needed = temp_spend
+            
+        # Spend ISA first (Tax-Free Bridge)
+        draw_isa = min(temp_isa, income_needed)
         temp_isa -= draw_isa
-        remaining_to_fund -= draw_isa
+        income_needed -= draw_isa
         
-        # Spend SIPP second (Taxable - simplified for prototype)
-        if remaining_to_fund > 0:
-            draw_sipp = min(temp_sipp, remaining_to_fund)
+        # Spend SIPP second
+        if income_needed > 0:
+            draw_sipp = min(temp_sipp, income_needed)
             temp_sipp -= draw_sipp
             
     # 3. Inflation adjustment for next year
     temp_spend *= (1 + inflation_rate)
+    temp_state_pension *= (1 + inflation_rate) # State Pension grows with inflation/Triple Lock
     
     data.append({
         "Age": age,
         "ISA": round(temp_isa),
         "SIPP": round(temp_sipp),
+        "State Pension Rec'd": round(state_pension_received),
         "Total Wealth": round(temp_isa + temp_sipp)
     })
 
 df = pd.DataFrame(data)
 
 # --- VISUALIZATION ---
-st.subheader("Wealth Projection Over Time")
+st.subheader("Wealth Projection & State Pension Impact")
+# Show how wealth changes
 st.line_chart(df.set_index("Age")[["ISA", "SIPP", "Total Wealth"]])
+
+# Show a bar chart of income sources
+st.subheader("Income Sources per Year")
+st.bar_chart(df.set_index("Age")[["State Pension Rec'd"]])
 
 st.subheader("Year-by-Year Breakdown")
 st.dataframe(df, use_container_width=True)
-
