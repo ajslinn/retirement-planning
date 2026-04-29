@@ -6,7 +6,6 @@ import json
 # --- 1. CONFIG & SESSION STATE ---
 st.set_page_config(page_title="AJS Retirement Ultimate", layout="wide")
 
-# Initialize session state for all inputs to allow for "Loading" profiles
 if 'defaults' not in st.session_state:
     st.session_state.defaults = {
         "current_age": 55, "retirement_age": 60, "isa_bal": 100000, "sipp_bal": 400000,
@@ -24,15 +23,16 @@ with st.expander("📖 COMPREHENSIVE USER GUIDE: How to Stress-Test Your Retirem
     col_g1, col_g2 = st.columns(2)
     with col_g1:
         st.subheader("Step 1: The Foundation")
-        st.write("Enter your **Assets** and **Guaranteed Income** (DB Pensions/State Pension). The model adjusts these for inflation automatically.")
-        st.subheader("Step 2: The Lump Sum")
-        st.write("Toggling 'Tax-Free Cash' moves 25% of your SIPP to a 'Tax-Free Pot' to bridge spending before touching taxable SIPP funds.")
+        st.write("Enter your **Assets** and **Guaranteed Income**. The model adjusts these for inflation automatically.")
+        st.subheader("Step 2: Smart Allowance Bedding")
+        st.info("💡 **Pro Logic:** Before your State Pension starts, the model 'fills' your £12,570 Personal Allowance using SIPP funds at 0% tax *before* touching your Tax-Free Pot. This saves your tax-free cash for later.")
     with col_g2:
         st.subheader("Step 3: Lifestyle Phases")
-        st.write("Most spend less as they age. Model your 'Go-Go' vs 'No-Go' years using the Spending Phase sliders.")
+        st.write("Model your 'Go-Go' vs 'No-Go' years. Spending drops are compounded to reflect natural lifestyle changes.")
         st.subheader("Step 4: The Red Line")
-        st.write("Watch the **Red Tax Line**. If it spikes, you've hit the 40% or 60% tax traps. Adjust your strategy to flatten it.")
-    st.info("💡 **AJS Tip:** The model follows the 'Waterfall' methodology—it spends Tax-Free Cash first to protect you from early retirement tax drag.")
+        st.write("The **Red Tax Line** tracks HMRC's take. If it spikes, you've hit the 40% or 60% tax traps (where Personal Allowance is lost).")
+    st.markdown("---")
+    st.write("**Privacy Note:** Use the sidebar to download your profile. Your data never leaves your browser.")
 
 # --- 3. SIDEBAR: PROFILE MANAGEMENT ---
 with st.sidebar:
@@ -115,38 +115,53 @@ for age in range(curr_age, 101):
     elif age >= p1_age: target_net *= (1 - p1_drop)
     target_net += splurges.get(age, 0)
     
+    # 1. Guaranteed Income Base
     db_income = sum(amt * ((1 + inflation_rate)**(age - curr_age)) for s_age, amt in db_schemes.items() if age >= s_age)
     sp_rec = temp_sp if age >= sp_age else 0
     fixed_taxable = db_income + sp_rec
     net_needed = max(0, target_net - fixed_taxable)
     
-    draw_tf = min(temp_tf_pot, net_needed)
-    temp_tf_pot -= draw_tf
-    final_gap = max(0, net_needed - draw_tf)
+    # --- SMART PA BEDDING LOGIC ---
+    # Draw from SIPP first to fill the Personal Allowance at 0% tax
+    remaining_pa = max(0, PA_BASE - fixed_taxable)
+    pa_fill_draw = min(temp_sipp, remaining_pa, net_needed)
+    temp_sipp -= pa_fill_draw
     
-    draw_sipp_gross, tax_paid = 0, 0
+    # Update need after the 'free' SIPP draw
+    net_after_pa = max(0, net_needed - pa_fill_draw)
+    
+    # 2. Tax-Free Pot Draw (Bridging the gap)
+    draw_tf = min(temp_tf_pot, net_after_pa)
+    temp_tf_pot -= draw_tf
+    
+    # 3. Final Taxable SIPP Draw (The 'Gross-Up' Pass)
+    final_gap = max(0, net_after_pa - draw_tf)
+    draw_sipp_taxable_gross, tax_paid = 0, 0
+    
     if final_gap > 0:
         low, high = final_gap, final_gap * 4
         for _ in range(20):
             mid = (low + high) / 2
-            tot_taxable = mid + fixed_taxable
+            tot_taxable = mid + fixed_taxable + pa_fill_draw # Total taxable income this year
             pa = max(0, PA_BASE - (max(0, tot_taxable - TAPER_START) / 2))
             tax = 0
             if tot_taxable > BASIC_LIMIT:
                 tax += (BASIC_LIMIT - pa) * BR + (tot_taxable - BASIC_LIMIT) * HR
             elif tot_taxable > pa:
                 tax += (tot_taxable - pa) * BR
+            
+            # We already used pa_fill_draw, so we only need to cover the tax increase
             if (mid - tax) < final_gap: low = mid
             else: high = mid
-        draw_sipp_gross = min(temp_sipp, high)
-        tax_paid = max(0, draw_sipp_gross - final_gap)
-        temp_sipp -= draw_sipp_gross
+        draw_sipp_taxable_gross = min(temp_sipp, high)
+        tax_paid = max(0, draw_sipp_taxable_gross - final_gap)
+        temp_sipp -= draw_sipp_taxable_gross
 
     data.append({
         "Age": age, "Total Wealth": round(temp_tf_pot + temp_sipp),
         "Tax-Free Pot": round(temp_tf_pot), "SIPP": round(temp_sipp),
         "DB Income": round(db_income), "State Pension": round(sp_rec),
-        "Tax-Free Draw": round(draw_tf), "SIPP (Net)": round(final_gap),
+        "Tax-Free Draw": round(draw_tf), "SIPP (Net)": round(pa_fill_draw + final_gap),
         "Tax Paid": round(tax_paid), "Target Net": round(target_net)
     })
     temp_spend *= (1 + inflation_rate); temp_sp *= (1 + inflation_rate)
