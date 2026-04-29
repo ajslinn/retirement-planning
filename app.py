@@ -3,8 +3,8 @@ import pandas as pd
 import plotly.graph_objects as go
 
 # --- 1. CONFIG & INPUTS ---
-st.set_page_config(page_title="AJS Retirement Ultimate", layout="wide")
-st.title("🚀 AJS Ultimate Retirement Prototype (2026/27)")
+st.set_page_config(page_title="Retirement Planner", layout="wide")
+st.title("🚀 Retirement Planner Prototype (2026/27)")
 
 with st.sidebar:
     st.header("1. Assets & Growth")
