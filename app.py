@@ -6,22 +6,47 @@ import plotly.graph_objects as go
 st.set_page_config(page_title="AJS Retirement Ultimate", layout="wide")
 st.title("🚀 AJS Ultimate Retirement Prototype (2026/27)")
 
-# User Guide Expander
-with st.expander("❓ How to use this model (User Guide)"):
-    st.markdown("""
-    ### 1. The Income Waterfall
-    The model draws income in this order: **DB Pensions > State Pension > Tax-Free Cash > Taxable SIPP**. 
-    This sequence is designed to keep your taxable income as low as possible for as long as possible.
+with st.expander("📖 COMPREHENSIVE USER GUIDE: How to Stress-Test Your Retirement", expanded=False):
+    st.write("This tool is designed to model the 'Decumulation' phase of your life—turning your assets into a sustainable income while navigating UK tax laws.")
+    
+    st.markdown("---")
+    
+    col_guide1, col_guide2 = st.columns(2)
+    
+    with col_guide1:
+        st.subheader("Step 1: Define Your Foundation")
+        st.write("""
+        1. **Assets:** Enter your starting **ISA** and **SIPP** balances.
+        2. **Growth vs Inflation:** These are the 'engine' of your plan. 
+           * *Standard Tip:* Many use 5% growth and 2.5% inflation for a 'Real' return of 2.5%.
+        3. **Guaranteed Floors:** Add your State Pension and DB (Final Salary) schemes. 
+           * *Note:* The model automatically adjusts these for inflation from today's value.
+        """)
 
-    ### 2. Smart Tax Logic
-    We've modeled the **2026/27 Tax Year**, including:
-    * **Personal Allowance:** £12,570 (frozen).
-    * **The 60% Trap:** Your allowance tapers away between £100k - £125,140.
-    * **LSA Cap:** Total tax-free lump sums are capped at £268,275.
+        st.subheader("Step 2: The 'Lump Sum' Strategy")
+        st.write("""
+        * **The Move:** Toggling 'Take 25% Tax-Free Cash' moves that portion from your SIPP to your 'Tax-Free Pot'.
+        * **Timing:** Change the age to see how taking it early (to bridge to State Pension) vs. taking it late (to let it grow) affects your tax bill.
+        """)
 
-    ### 3. Tax-Free Cash vs ISA
-    Note: While the model moves 25% of your SIPP into a 'Tax-Free Pot', it does not assume this enters an ISA (which has a £20k annual limit). It simply treats this capital as available to spend without further tax.
-    """)
+    with col_guide2:
+        st.subheader("Step 3: Model Your Lifestyle")
+        st.write("""
+        * **Spending Drops:** Most people spend less as they age. 
+           * *Phase 1:* The 'Go-Go' years (Active retirement).
+           * *Phase 2:* The 'Slow-Go' years (Less travel).
+           * *Phase 3:* The 'No-Go' years (Low activity).
+        * **Splurges:** Don't forget one-off costs like cars or big anniversaries!
+        """)
+
+        st.subheader("Step 4: Analyze the 'Red Line'")
+        st.write("""
+        * **The Waterfall:** Watch how the income stack changes at Age 67 (State Pension).
+        * **Tax Efficiency:** If you see the **Red Line** spike above £10k/year, you are likely hitting the 40% or 60% tax traps. 
+        * **Goal:** Adjust your SIPP draw or Lump Sum age to keep that red line as flat as possible.
+        """)
+
+    st.info("💡 **AJS Tip:** This model follows the 'Waterfall' methodology—it will always spend your tax-free cash first to protect you from unnecessary tax early in retirement.")# User Guide Expander
 
 with st.sidebar:
     st.header("1. Assets & Growth")
