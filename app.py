@@ -150,4 +150,11 @@ fig = go.Figure()
 fig.add_trace(go.Bar(x=df['Age'], y=df['DB Income'], name='DB Pension', marker_color='#9467bd'))
 fig.add_trace(go.Bar(x=df['Age'], y=df['State Pension'], name='State Pension', marker_color='#2ca02c'))
 fig.add_trace(go.Bar(x=df['Age'], y=df['Tax-Free Draw'], name='Tax-Free Cash Draw', marker_color='#1f77b4'))
-fig.add_trace(go.Bar(x=df['Age'], y=df['SIPP (Net)'], name='S
+fig.add_trace(go.Bar(x=df['Age'], y=df['SIPP (Net)'], name='SIPP (Net)', marker_color='#ff7f0e'))
+fig.add_trace(go.Scatter(x=df['Age'], y=df['Tax Paid'], name='Tax (HMRC)', line=dict(color='#d62728', width=2)))
+fig.update_layout(barmode='stack', hovermode="x unified", xaxis_title="Age", yaxis_title="£ Amount")
+st.plotly_chart(fig, use_container_width=True)
+
+st.subheader("Asset Depletion")
+st.line_chart(df.set_index("Age")[["Tax-Free Pot", "SIPP", "Total Wealth"]])
+st.dataframe(df)
