@@ -64,7 +64,8 @@ with st.sidebar:
             st.error("Invalid File Format")
 
     st.header("1. Assets & Growth")
-    curr_age = st.number_input("Current Age", value=st.session_state.defaults["current_age"], key="current_age")    ret_age = st.number_input("Retirement Age", value=st.session_state.defaults["retirement_age"])
+    curr_age = st.number_input("Current Age", value=st.session_state.defaults["current_age"], key="current_age")    
+    ret_age = st.number_input("Retirement Age", value=st.session_state.defaults["retirement_age"])
     isa_bal = st.number_input("Existing ISA/Cash Balance (£)", value=st.session_state.defaults["isa_bal"])
     sipp_bal = st.number_input("SIPP Balance (£)", value=st.session_state.defaults["sipp_bal"])
     growth_rate = st.slider("Investment Growth (%)", 0.0, 10.0, float(st.session_state.defaults["growth"])) / 100
