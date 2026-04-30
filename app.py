@@ -4,7 +4,7 @@ import plotly.graph_objects as go
 import json
 
 # --- 1. CONFIG & SESSION STATE ---
-st.set_page_config(page_title="AJS Retirement Ultimate", layout="wide")
+st.set_page_config(page_title="Retirement Planner", layout="wide")
 
 if 'defaults' not in st.session_state:
     st.session_state.defaults = {
@@ -15,7 +15,7 @@ if 'defaults' not in st.session_state:
     }
 
 # --- 2. USER GUIDE ---
-st.title("🚀 AJS Ultimate Retirement Prototype (2026/27)")
+st.title("Retirement Planner Prototype (2026/27)")
 
 with st.expander("📖 USER GUIDE: How to Stress-Test Your Retirement", expanded=False):
     st.write("This tool models the 'Decumulation' phase—turning assets into sustainable income while navigating UK tax laws.")
