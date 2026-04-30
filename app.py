@@ -24,14 +24,14 @@ with st.expander("📖 USER GUIDE: How to Stress-Test Your Retirement", expanded
     with col_g1:
         st.subheader("Step 1: Assets & Growth")
         st.write("Enter your **current age** and desired **retirement age**. Add the value of your current **ISA**, **cash savings** and total **SIPPs**. The model adjusts these for your selected growth and inflation % automatically.")
-        st.subheader("Step 2: Smart Allowance Bedding")
-        st.info("💡 **Pro Logic:** Before your State Pension starts, the model 'fills' your £12,570 Personal Allowance using SIPP funds at 0% tax *before* touching your Tax-Free Pot. This saves your tax-free cash for later.")
+        st.subheader("Step 2: Guaranteed Income")
     with col_g2:
         st.subheader("Step 3: Lifestyle Phases")
         st.write("Model your 'Go-Go' vs 'No-Go' years. Spending drops are compounded to reflect natural lifestyle changes.")
         st.subheader("Step 4: The Red Line")
         st.write("The **Red Tax Line** tracks HMRC's take. If it spikes, you've hit the 40% or 60% tax traps (where Personal Allowance is lost).")
     st.markdown("---")
+    st.info("💡 **Smart Allowance Bedding:** Before your State Pension starts, the model 'fills' your £12,570 Personal Allowance using SIPP funds at 0% tax *before* touching your Tax-Free Pot. This saves your tax-free cash for later.")
     st.write("**Privacy Note:** Use the sidebar to download your profile. Your data never leaves your browser.")
 
 # --- 3. SIDEBAR: PROFILE MANAGEMENT ---
