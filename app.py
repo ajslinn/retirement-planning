@@ -5,7 +5,19 @@ import json
 
 # --- 1. CONFIG & SESSION STATE ---
 st.set_page_config(page_title="Retirement Planner", layout="wide")
-
+st.markdown("""
+    <style>
+    .main {
+        background-color: #f5f7f9;
+    }
+    stMetric {
+        background-color: #ffffff;
+        padding: 15px;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    </style>
+    """, unsafe_allow_html=True)
 if 'defaults' not in st.session_state:
     st.session_state.defaults = {
         "current_age": 55, "retirement_age": 60, "isa_bal": 100000, "sipp_bal": 400000,
@@ -24,6 +36,7 @@ with st.expander("📖 USER GUIDE: How to Stress-Test Your Retirement", expanded
     with col_g1:
         st.subheader("Step 1: Assets & Growth")
         st.write("Enter your **current age** and desired **retirement age**. Add the value of your current **ISA**, **cash savings** and total **SIPPs**. The model adjusts these for your selected growth and inflation % automatically.")
+        st.write("Note: Growth and Inflation rates are applied annually to simulate real-world purchasing power.")
         st.subheader("Step 2: Guaranteed Income")
         st.write("Enter your **State Pension Age** and your projected **Annual State Pension** in todays money, the tool inflation adjusts this value automatically. If you will receive any **Final Salary (DB)** pensions add these using the format Age:Amount (e.g. **60:10000**). You can add multiple values by separating the input with a comma")
     with col_g2:
@@ -35,7 +48,7 @@ with st.expander("📖 USER GUIDE: How to Stress-Test Your Retirement", expanded
         st.write("Model your 'Go-Go' vs 'No-Go' years using the phasing sliders. Spending drops are compounded to reflect natural lifestyle changes.")
         st.markdown("---")
     st.write("The **Red Tax Line** tracks HMRC tax liability based on the current tax thresholds.")
-    st.info("💡 **Smart Allowance Bedding:** Before your State Pension starts, the model 'fills' your Personal Allowance using SIPP funds at 0% tax *before* touching your Tax-Free Pot. This saves your tax-free cash for later.")
+    st.info("💡 **Smart Allowance Bedding:** Before your State Pension starts, the model 'fills' your Personal Allowance using SIPP funds at 0% tax *before* touching your Tax-Free Cash. This saves your tax-free cash for later.")
     st.write("**Privacy Note:** Use the sidebar to download your profile. Your data never leaves your device.")
 
 # --- 3. SIDEBAR: PROFILE MANAGEMENT ---
@@ -51,8 +64,7 @@ with st.sidebar:
             st.error("Invalid File Format")
 
     st.header("1. Assets & Growth")
-    curr_age = st.number_input("Current Age", value=st.session_state.defaults["current_age"])
-    ret_age = st.number_input("Retirement Age", value=st.session_state.defaults["retirement_age"])
+    curr_age = st.number_input("Current Age", value=st.session_state.defaults["current_age"], key="current_age")    ret_age = st.number_input("Retirement Age", value=st.session_state.defaults["retirement_age"])
     isa_bal = st.number_input("Existing ISA/Cash Balance (£)", value=st.session_state.defaults["isa_bal"])
     sipp_bal = st.number_input("SIPP Balance (£)", value=st.session_state.defaults["sipp_bal"])
     growth_rate = st.slider("Investment Growth (%)", 0.0, 10.0, float(st.session_state.defaults["growth"])) / 100
@@ -70,10 +82,10 @@ with st.sidebar:
 
     st.header("4. Spending Phases")
     annual_spend = st.number_input("Initial Target Net Spend (£)", value=st.session_state.defaults["spend"])
-    p1_age = st.slider("Phase 1 Drop Age", 60, 95, int(st.session_state.defaults["p1_age"]))
-    p1_drop = st.slider("Phase 1 Drop (%)", 0, 50, int(st.session_state.defaults["p1_drop"])) / 100
-    p2_age = st.slider("Phase 2 Drop Age", 70, 100, int(st.session_state.defaults["p2_age"]))
-    p2_drop = st.slider("Phase 2 Drop (%)", 0, 50, int(st.session_state.defaults["p2_drop"])) / 100
+    p1_age = st.slider("Phase 1 Age", 60, 95, int(st.session_state.defaults["p1_age"]))
+    p1_drop = st.slider("Phase 1 Reduction (%)", 0, 50, int(st.session_state.defaults["p1_drop"])) / 100
+    p2_age = st.slider("Phase 2 Age", 70, 100, int(st.session_state.defaults["p2_age"]))
+    p2_drop = st.slider("Phase 2 Additional Reduction (%)", 0, 50, int(st.session_state.defaults["p2_drop"])) / 100
 
     # Save Profile Button
     export_data = {
