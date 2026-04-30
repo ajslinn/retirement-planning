@@ -25,7 +25,7 @@ with st.expander("📖 USER GUIDE: How to Stress-Test Your Retirement", expanded
         st.subheader("Step 1: Assets & Growth")
         st.write("Enter your **current age** and desired **retirement age**. Add the value of your current **ISA**, **cash savings** and total **SIPPs**. The model adjusts these for your selected growth and inflation % automatically.")
         st.subheader("Step 2: Guaranteed Income")
-        st.write("Enter your **State Pension Age** and your projected Annual State Pension in todays money. The tool inflation adjusts this automatically. If you will receive any final salary (DB) pensions add these using the format Age:Amount (e.g. 60:10000). You can add multiple values by comma separting the input ")
+        st.write("Enter your **State Pension Age** and your projected **Annual State Pension** in todays money, the tool inflation adjusts this value automatically. If you will receive any **Final Salary (DB)** pensions add these using the format Age:Amount (e.g. **60:10000**). You can add multiple values by separating the input with a comma")
     with col_g2:
         st.subheader("Step 3: Lifestyle Phases")
         st.write("Model your 'Go-Go' vs 'No-Go' years. Spending drops are compounded to reflect natural lifestyle changes.")
