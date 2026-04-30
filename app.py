@@ -17,13 +17,13 @@ if 'defaults' not in st.session_state:
 # --- 2. USER GUIDE ---
 st.title("🚀 AJS Ultimate Retirement Prototype (2026/27)")
 
-with st.expander("📖 COMPREHENSIVE USER GUIDE: How to Stress-Test Your Retirement", expanded=False):
+with st.expander("📖 USER GUIDE: How to Stress-Test Your Retirement", expanded=False):
     st.write("This tool models the 'Decumulation' phase—turning assets into sustainable income while navigating UK tax laws.")
     st.markdown("---")
     col_g1, col_g2 = st.columns(2)
     with col_g1:
-        st.subheader("Step 1: The Foundation")
-        st.write("Enter your **Assets** and **Guaranteed Income**. The model adjusts these for inflation automatically.")
+        st.subheader("Step 1: Assets & Growth")
+        st.write("Enter your current age and projected retirement age. Add the value of your current ISA, cash savings and total SIPPs. The model adjusts these for your selected growth and inflation % automatically.")
         st.subheader("Step 2: Smart Allowance Bedding")
         st.info("💡 **Pro Logic:** Before your State Pension starts, the model 'fills' your £12,570 Personal Allowance using SIPP funds at 0% tax *before* touching your Tax-Free Pot. This saves your tax-free cash for later.")
     with col_g2:
