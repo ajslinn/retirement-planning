@@ -27,6 +27,9 @@ with st.expander("📖 USER GUIDE: How to Stress-Test Your Retirement", expanded
         st.subheader("Step 2: Guaranteed Income")
         st.write("Enter your **State Pension Age** and your projected **Annual State Pension** in todays money, the tool inflation adjusts this value automatically. If you will receive any **Final Salary (DB)** pensions add these using the format Age:Amount (e.g. **60:10000**). You can add multiple values by separating the input with a comma")
     with col_g2:
+        st.subheader("Step 3: Strategy & Splurges")
+        st.write("Tick the box if you intend to take your Tax Free Cash as a lump sump and select the age you plan to take this.")
+        st.write("You can add in known lump sum spending in the 'Splurges' box using the Age:Amount format. Separate multiple entries with a comma.")
         st.subheader("Step 3: Lifestyle Phases")
         st.write("Model your 'Go-Go' vs 'No-Go' years. Spending drops are compounded to reflect natural lifestyle changes.")
         st.subheader("Step 4: The Red Line")
