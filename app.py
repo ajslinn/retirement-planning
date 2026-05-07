@@ -29,11 +29,23 @@ if 'defaults' not in st.session_state:
         "splurge": ""
     }
 
-# --- 2. SIDEBAR ---
+# --- 2. SIDEBAR & PROFILE MANAGEMENT ---
 with st.sidebar:
     st.header("⚙️ Configuration")
-    mode = st.radio("Planning Mode", ["Single", "Joint"], index=1 if st.session_state.defaults["mode"] == "Joint" else 0)
+    # Determine the index based on session state
+    mode_idx = 0 if st.session_state.defaults.get("mode") == "Single" else 1
+    mode = st.radio("Planning Mode", ["Single", "Joint"], index=mode_idx)
     
+    st.header("💾 Profile Management")
+    uploaded_file = st.file_uploader("Upload '.json' profile", type="json")
+    if uploaded_file is not None:
+        try:
+            loaded_data = json.load(uploaded_file)
+            st.session_state.defaults.update(loaded_data)
+            st.success("Profile Loaded! Refreshing...")
+            st.rerun() # Ensure the UI updates immediately
+        except: st.error("Invalid Format")
+
     if mode == "Joint":
         tab_p1, tab_p2, tab_joint = st.tabs(["Partner 1", "Partner 2", "Household"])
     else:
@@ -70,6 +82,20 @@ with st.sidebar:
         p2_red = st.slider("Addl Reduction (%)", 0, 50, int(st.session_state.defaults["p2_reduction"])) / 100
         splurge_in = st.text_input("Splurges (P1_Age:Amt)", value=st.session_state.defaults["splurge"])
 
+    # --- SAVE TO JSON OPTION ---
+    st.markdown("---")
+    export_data = {
+        "mode": mode, "p1_age": p1_age_start, "p2_age": p2_age_start, 
+        "retire_year": retire_in_yrs, "isa_bal": isa_joint, "p1_sipp": p1_sipp, "p2_sipp": p2_sipp, 
+        "growth": growth*100, "inflation": infl*100, "p1_sp_age": p1_sp_age, "p1_sp_amt": p1_sp_amt, 
+        "p2_sp_age": p2_sp_age, "p2_sp_amt": p2_sp_amt, "p1_db": p1_db_in, "p2_db": p2_db_in, 
+        "p1_lump_age": p1_lump_age, "p2_lump_age": p2_lump_age, "spend": target_spend, 
+        "p1_age_drop": p1_drop_age, "p1_reduction": p1_red*100, "p2_age_drop": p2_drop_age, 
+        "p2_reduction": p2_red*100, "splurge": splurge_in
+    }
+    st.download_button(label="📥 Save Profile as JSON", data=json.dumps(export_data, indent=4), 
+                       file_name="retirement_profile.json", mime="application/json")
+
 # --- 3. CALCULATION ENGINE ---
 PA, BR_LIMIT, TAPER, LSA = 12570, 50270, 100000, 268275
 
@@ -93,7 +119,6 @@ for year in range(46):
     p1_a, p2_a = p1_age_start + year, p2_age_start + year
     p1_s *= (1+growth); p2_s *= (1+growth); joint_i *= (1+growth)
 
-    # Lump Sums
     if p1_a == p1_lump_age:
         amt = min(p1_s*0.25, LSA-p1_lsa); p1_s -= amt; joint_i += amt; p1_lsa += amt
     if mode == "Joint" and p2_a == p2_lump_age:
@@ -104,18 +129,14 @@ for year in range(46):
     elif p1_a >= p1_drop_age: goal *= (1-p1_red)
     goal += splurges.get(p1_a, 0)
 
-    # State Pension tracking for the graph
     p1_sp_received = p1_curr_sp if p1_a >= p1_sp_age else 0
     p2_sp_received = (p2_curr_sp if p2_a >= p2_sp_age else 0) if mode == "Joint" else 0
-    
-    # DB Income
     p1_f_db = sum(v*((1+infl)**year) for k,v in p1_db.items() if p1_a >= k)
     p2_f_db = (sum(v*((1+infl)**year) for k,v in p2_db.items() if p2_a >= k)) if mode == "Joint" else 0
     
     p1_total_fixed = p1_sp_received + p1_f_db
     p2_total_fixed = p2_sp_received + p2_f_db
     
-    # PA Bedding (Individual SIPPs)
     p1_pa_d = min(p1_s, max(0, PA-p1_total_fixed), (goal/2 if mode=="Joint" else goal))
     p2_pa_d = min(p2_s, max(0, PA-p2_total_fixed), (goal - p1_pa_d)) if mode=="Joint" else 0
     p1_s -= p1_pa_d; p2_s -= p2_pa_d
@@ -125,7 +146,6 @@ for year in range(46):
     joint_i -= draw_isa
     final_gap = max(0, net_needed - draw_isa)
 
-    # Taxable SIPP Logic
     p1_tax, p2_tax, p1_sn, p2_sn = 0, 0, 0, 0
     if final_gap > 0:
         def calc_tax(gross, fixed, pa_draw):
@@ -148,14 +168,11 @@ for year in range(46):
             else: p2_tax = tx; p2_sn = ad - tx; p2_s -= ad
 
     data.append({
-        "Age": p1_a, "Year": year,
-        "Total Wealth": round(p1_s + p2_s + joint_i),
-        "P1 State Pension": round(p1_sp_received),
-        "P2 State Pension": round(p2_sp_received),
+        "Age": p1_a, "Year": year, "Total Wealth": round(p1_s + p2_s + joint_i),
+        "P1 State Pension": round(p1_sp_received), "P2 State Pension": round(p2_sp_received),
         "P1 Private Income": round(p1_f_db + p1_pa_d + p1_sn),
         "P2 Private Income": round(p2_f_db + p2_pa_d + p2_sn) if mode=="Joint" else 0,
-        "ISA Draw": round(draw_isa),
-        "Tax": round(p1_tax + p2_tax),
+        "ISA Draw": round(draw_isa), "Tax": round(p1_tax + p2_tax),
         "P1_SIPP": round(p1_s), "P2_SIPP": round(p2_s), "Joint_ISA": round(joint_i)
     })
     curr_spend *= (1+infl); p1_curr_sp *= (1+infl); p2_curr_sp *= (1+infl)
@@ -163,27 +180,20 @@ for year in range(46):
 df = pd.DataFrame(data)
 
 # --- 4. VISUALS ---
+st.title("Retirement Projection")
 m1, m2, m3 = st.columns(3)
 m1.metric("Final Wealth", f"£{df['Total Wealth'].iloc[-1]:,}")
 m2.metric("Total Tax Bill", f"£{df['Tax'].sum():,}")
 m3.metric("Plan Status", "SECURE" if df['Total Wealth'].iloc[-1] > 0 else "EXHAUSTED")
 
-st.subheader("Household Income Stack (Individual State Pensions Highlighted)")
 fig = go.Figure()
-
-# Stack 1: P1 State Pension
 fig.add_trace(go.Bar(x=df['Age'], y=df['P1 State Pension'], name='P1 State Pension', marker_color='#2ca02c'))
-# Stack 2: P2 State Pension
 if mode == "Joint":
     fig.add_trace(go.Bar(x=df['Age'], y=df['P2 State Pension'], name='P2 State Pension', marker_color='#b2df8a'))
-# Stack 3: P1 Private (SIPP + DB)
 fig.add_trace(go.Bar(x=df['Age'], y=df['P1 Private Income'], name='P1 Private (SIPP/DB)', marker_color='#9467bd'))
-# Stack 4: P2 Private (SIPP + DB)
 if mode == "Joint":
     fig.add_trace(go.Bar(x=df['Age'], y=df['P2 Private Income'], name='P2 Private (SIPP/DB)', marker_color='#cab2d6'))
-# Stack 5: ISA
 fig.add_trace(go.Bar(x=df['Age'], y=df['ISA Draw'], name='ISA/Tax-Free Draw', marker_color='#1f77b4'))
-# Line: Tax Paid
 fig.add_trace(go.Scatter(x=df['Age'], y=df['Tax'], name='Tax Paid', line=dict(color='red', width=2)))
 
 fig.update_layout(barmode='stack', hovermode="x unified", xaxis_title="Age (P1)", yaxis_title="£ Amount")
