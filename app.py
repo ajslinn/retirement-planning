@@ -4,13 +4,11 @@ import plotly.graph_objects as go
 import json
 
 # --- 1. CONFIG & SESSION STATE ---
-st.set_page_config(page_title="Retirement Planner", layout="wide")
+st.set_page_config(page_title="Joint Retirement Planner", layout="wide")
 st.markdown("""
     <style>
-    .main {
-        background-color: #f5f7f9;
-    }
-    stMetric {
+    .main { background-color: #f5f7f9; }
+    div[data-testid="stMetric"] {
         background-color: #ffffff;
         padding: 15px;
         border-radius: 10px;
@@ -18,194 +16,197 @@ st.markdown("""
     }
     </style>
     """, unsafe_allow_html=True)
+
 if 'defaults' not in st.session_state:
     st.session_state.defaults = {
-        "current_age": 55, "retirement_age": 60, "isa_bal": 100000, "sipp_bal": 400000,
-        "growth": 5.0, "inflation": 2.5, "sp_age": 67, "sp_amt": 12548,
-        "db": "", "lump_sum": True, "lump_age": 60, "splurge": "",
-        "spend": 35000, "p1_age": 75, "p1_drop": 10, "p2_age": 85, "p2_drop": 10
+        "p1_age": 55, "p2_age": 53, "retire_year": 5,
+        "isa_bal": 100000, "p1_sipp": 400000, "p2_sipp": 300000,
+        "growth": 5.0, "inflation": 2.5,
+        "p1_sp_age": 67, "p1_sp_amt": 12548, "p2_sp_age": 67, "p2_sp_amt": 12548,
+        "p1_db": "", "p2_db": "",
+        "p1_lump_age": 60, "p2_lump_age": 60, "take_lump": True,
+        "spend": 55000, "p1_age_drop": 75, "p1_reduction": 10, "p2_age_drop": 85, "p2_reduction": 10,
+        "splurge": ""
     }
 
 # --- 2. USER GUIDE ---
-st.title("Retirement Planner Prototype (2026/27)")
+st.title("Joint Retirement Planner Prototype (2026/27)")
 
-with st.expander("📖 USER GUIDE: How to Stress-Test Your Retirement", expanded=False):
-    st.write("This tool models the 'Decumulation' phase—turning assets into sustainable income while navigating UK tax laws.")
+with st.expander("📖 JOINT USER GUIDE: Strategic Household Planning", expanded=False):
+    st.write("This tool models a couple's retirement. It syncs your ages and optimizes **two** sets of tax allowances.")
     st.markdown("---")
     col_g1, col_g2 = st.columns(2)
     with col_g1:
-        st.subheader("Step 1: Assets & Growth")
-        st.write("Enter your **current age** and desired **retirement age**. Add the value of your current **ISA**, **cash savings** and total **SIPPs**. The model adjusts these for your selected growth and inflation % automatically.")
-        st.write("Note: Growth and Inflation rates are applied annually to simulate real-world purchasing power.")
-        st.subheader("Step 2: Guaranteed Income")
-        st.write("Enter your **State Pension Age** and your projected **Annual State Pension** in todays money, the tool inflation adjusts this value automatically. If you will receive any **Final Salary (DB)** pensions add these using the format Age:Amount (e.g. **60:10000**). You can add multiple values by separating the input with a comma")
+        st.subheader("Step 1: Household Ages")
+        st.write("Enter ages for both partners. The model runs for 45 years from today. Define when the household stops working.")
+        st.subheader("Step 2: Split Assets")
+        st.write("Keep SIPPs separate (as HMRC does). Use the **Joint ISA** for shared liquid savings.")
     with col_g2:
-        st.subheader("Step 3: Strategy & Splurges")
-        st.write("Tick the box if you intend to take your Tax Free Cash as a lump sum and select the age you plan to take this.")
-        st.write("You can add in known lump sum spending in the 'Splurges' box using the Age:Amount format. Separate multiple entries with a comma.")
-        st.subheader("Step 4: Spending Phases")
-        st.write("Enter your current annual spending in the **Target Net Spend** box. The tool inflation adjusts this through your lifetime.")
-        st.write("Model your 'Go-Go' vs 'No-Go' years using the phasing sliders. Spending drops are compounded to reflect natural lifestyle changes.")
-        st.markdown("---")
-    st.write("The **Red Tax Line** tracks HMRC tax liability based on the current tax thresholds.")
-    st.info("💡 **Smart Allowance Bedding:** Before your State Pension starts, the model 'fills' your Personal Allowance using SIPP funds at 0% tax *before* touching your Tax-Free Cash. This saves your tax-free cash for later.")
-    st.write("**Privacy Note:** Use the sidebar to download your profile. Your data never leaves your device.")
+        st.subheader("Step 3: Income & Splurges")
+        st.write("Add individual State Pensions and DB schemes. The model will inflation-adjust all values.")
+        st.subheader("Step 4: The Joint Waterfall")
+        st.info("💡 **Household Optimization:** The engine fills **both** Personal Allowances (£12,570 each) from SIPPs first, effectively generating up to £25,140 tax-free for the couple before touching ISA or paying tax.")
+    st.write("**Privacy:** Download your joint profile in the sidebar. No data is stored.")
 
-# --- 3. SIDEBAR: PROFILE MANAGEMENT ---
+# --- 3. SIDEBAR: TABS FOR PARTNERS ---
 with st.sidebar:
     st.header("💾 Profile Management")
     uploaded_file = st.file_uploader("Upload '.json' profile", type="json")
     if uploaded_file is not None:
         try:
-            loaded_data = json.load(uploaded_file)
-            st.session_state.defaults.update(loaded_data)
-            st.success("Profile Data Loaded!")
-        except:
-            st.error("Invalid File Format")
+            st.session_state.defaults.update(json.load(uploaded_file))
+            st.success("Household Profile Loaded!")
+        except: st.error("Invalid Format")
 
-    st.header("1. Assets & Growth")
-    curr_age = st.number_input("Current Age", value=st.session_state.defaults["current_age"], key="current_age")    
-    ret_age = st.number_input("Retirement Age", value=st.session_state.defaults["retirement_age"])
-    isa_bal = st.number_input("Existing ISA/Cash Balance (£)", value=st.session_state.defaults["isa_bal"])
-    sipp_bal = st.number_input("SIPP Balance (£)", value=st.session_state.defaults["sipp_bal"])
-    growth_rate = st.slider("Investment Growth (%)", 0.0, 10.0, float(st.session_state.defaults["growth"])) / 100
-    inflation_rate = st.slider("Inflation (%)", 0.0, 5.0, float(st.session_state.defaults["inflation"])) / 100
+    tab_p1, tab_p2, tab_joint = st.tabs(["Partner 1", "Partner 2", "Household"])
+    
+    with tab_p1:
+        p1_age_start = st.number_input("P1 Current Age", value=st.session_state.defaults["p1_age"])
+        p1_sipp = st.number_input("P1 SIPP Balance (£)", value=st.session_state.defaults["p1_sipp"])
+        p1_sp_age = st.slider("P1 State Pension Age", 66, 68, int(st.session_state.defaults["p1_sp_age"]))
+        p1_sp_amt = st.number_input("P1 State Pension (£)", value=st.session_state.defaults["p1_sp_amt"])
+        p1_db_in = st.text_input("P1 DB Pensions (Age:Amt)", value=st.session_state.defaults["p1_db"])
+        p1_lump_age = st.slider("P1 Tax-Free Cash Age", 55, 75, int(st.session_state.defaults["p1_lump_age"]))
 
-    st.header("2. Guaranteed Income")
-    sp_age = st.slider("State Pension Age", 66, 68, int(st.session_state.defaults["sp_age"]))
-    sp_amt = st.number_input("Annual State Pension (£)", value=st.session_state.defaults["sp_amt"])
-    db_input = st.text_input("DB Pensions (Age:Amount)", value=st.session_state.defaults["db"])
+    with tab_p2:
+        p2_age_start = st.number_input("P2 Current Age", value=st.session_state.defaults["p2_age"])
+        p2_sipp = st.number_input("P2 SIPP Balance (£)", value=st.session_state.defaults["p2_sipp"])
+        p2_sp_age = st.slider("P2 State Pension Age", 66, 68, int(st.session_state.defaults["p2_sp_age"]))
+        p2_sp_amt = st.number_input("P2 State Pension (£)", value=st.session_state.defaults["p2_sp_amt"])
+        p2_db_in = st.text_input("P2 DB Pensions (Age:Amt)", value=st.session_state.defaults["p2_db"])
+        p2_lump_age = st.slider("P2 Tax-Free Cash Age", 55, 75, int(st.session_state.defaults["p2_lump_age"]))
 
-    st.header("3. Strategy & Splurges")
-    take_lump_sum = st.checkbox("Take 25% Tax-Free Cash?", value=st.session_state.defaults["lump_sum"])
-    lump_sum_age = st.slider("Age to take Tax-Free Cash", 55, 75, int(st.session_state.defaults["lump_age"]))
-    splurge_input = st.text_input("Splurges (Age:Amount)", value=st.session_state.defaults["splurge"])
+    with tab_joint:
+        retire_in_yrs = st.number_input("Years until Retirement", value=st.session_state.defaults["retire_year"])
+        isa_joint = st.number_input("Joint ISA/Cash (£)", value=st.session_state.defaults["isa_bal"])
+        growth = st.slider("Growth (%)", 0.0, 10.0, float(st.session_state.defaults["growth"])) / 100
+        infl = st.slider("Inflation (%)", 0.0, 5.0, float(st.session_state.defaults["inflation"])) / 100
+        target_spend = st.number_input("Target Household Spend (£)", value=st.session_state.defaults["spend"])
+        p1_drop_age = st.slider("Phase 1 Age (P1)", 60, 95, int(st.session_state.defaults["p1_age_drop"]))
+        p1_red = st.slider("P1 Reduction (%)", 0, 50, int(st.session_state.defaults["p1_reduction"])) / 100
+        p2_drop_age = st.slider("Phase 2 Age (P1)", 70, 100, int(st.session_state.defaults["p2_age_drop"]))
+        p2_red = st.slider("P2 Additional Reduction (%)", 0, 50, int(st.session_state.defaults["p2_reduction"])) / 100
+        splurge_in = st.text_input("Splurges (P1_Age:Amt)", value=st.session_state.defaults["splurge"])
 
-    st.header("4. Spending Phases")
-    annual_spend = st.number_input("Initial Target Net Spend (£)", value=st.session_state.defaults["spend"])
-    p1_age = st.slider("Phase 1 Age", 60, 95, int(st.session_state.defaults["p1_age"]))
-    p1_drop = st.slider("Phase 1 Reduction (%)", 0, 50, int(st.session_state.defaults["p1_drop"])) / 100
-    p2_age = st.slider("Phase 2 Age", 70, 100, int(st.session_state.defaults["p2_age"]))
-    p2_drop = st.slider("Phase 2 Additional Reduction (%)", 0, 50, int(st.session_state.defaults["p2_drop"])) / 100
-
-    # Save Profile Button
-    export_data = {
-        "current_age": curr_age, "retirement_age": ret_age, "isa_bal": isa_bal, "sipp_bal": sipp_bal,
-        "growth": growth_rate * 100, "inflation": inflation_rate * 100, "sp_age": sp_age, "sp_amt": sp_amt,
-        "db": db_input, "lump_sum": take_lump_sum, "lump_age": lump_sum_age, "splurge": splurge_input,
-        "spend": annual_spend, "p1_age": p1_age, "p1_drop": p1_drop * 100, "p2_age": p2_age, "p2_drop": p2_drop * 100
+    # Export Logic
+    exp = {
+        "p1_age": p1_age_start, "p2_age": p2_age_start, "retire_year": retire_in_yrs,
+        "isa_bal": isa_joint, "p1_sipp": p1_sipp, "p2_sipp": p2_sipp, "growth": growth*100, "inflation": infl*100,
+        "p1_sp_age": p1_sp_age, "p1_sp_amt": p1_sp_amt, "p2_sp_age": p2_sp_age, "p2_sp_amt": p2_sp_amt,
+        "p1_db": p1_db_in, "p2_db": p2_db_in, "p1_lump_age": p1_lump_age, "p2_lump_age": p2_lump_age,
+        "spend": target_spend, "p1_age_drop": p1_drop_age, "p1_reduction": p1_red*100,
+        "p2_age_drop": p2_drop_age, "p2_reduction": p2_red*100, "splurge": splurge_in
     }
-    st.download_button(label="📥 Download Current Profile", data=json.dumps(export_data, indent=4), 
-                       file_name="my_retirement_plan.json", mime="application/json")
+    st.download_button("📥 Download Joint Profile", json.dumps(exp, indent=4), "household_plan.json")
 
-# --- 4. CALCULATION ENGINE ---
-PA_BASE, BASIC_LIMIT, TAPER_START, LSA_LIMIT = 12570, 50270, 100000, 268275
-BR, HR = 0.20, 0.40
+# --- 4. CALCULATION ENGINE (YEAR-BASED) ---
+PA, BR_LIMIT, TAPER, LSA = 12570, 50270, 100000, 268275
 
-def parse_kv(text):
+def parse_kv(t):
     d = {}
-    if text:
+    if t:
         try:
-            for item in text.split(","):
-                k, v = item.split(":")
+            for i in t.split(","):
+                k, v = i.split(":")
                 d[int(k.strip())] = float(v.strip())
         except: pass
     return d
 
-db_schemes, splurges = parse_kv(db_input), parse_kv(splurge_input)
+p1_db, p2_db, splurges = parse_kv(p1_db_in), parse_kv(p2_db_in), parse_kv(splurge_in)
 data = []
-temp_tf_pot, temp_sipp = isa_bal, sipp_bal
-temp_spend, temp_sp, lsa_used = annual_spend, sp_amt, 0
+p1_s, p2_s, joint_i = p1_sipp, p2_sipp, isa_joint
+p1_lsa, p2_lsa = 0, 0
+curr_spend, p1_curr_sp, p2_curr_sp = target_spend, p1_sp_amt, p2_sp_amt
 
-for age in range(curr_age, 101):
-    temp_tf_pot *= (1 + growth_rate)
-    temp_sipp *= (1 + growth_rate)
-    
-    if take_lump_sum and age == lump_sum_age:
-        lump_amt = min(temp_sipp * 0.25, LSA_LIMIT - lsa_used)
-        temp_sipp -= lump_amt
-        temp_tf_pot += lump_amt
-        lsa_used += lump_amt
+for year in range(46):
+    p1_a, p2_a = p1_age_start + year, p2_age_start + year
+    p1_s *= (1+growth); p2_s *= (1+growth); joint_i *= (1+growth)
 
-    target_net = temp_spend if age >= ret_age else 0
-    if age >= p2_age: target_net *= (1 - p1_drop) * (1 - p2_drop)
-    elif age >= p1_age: target_net *= (1 - p1_drop)
-    target_net += splurges.get(age, 0)
+    # Lump Sums
+    if p1_a == p1_lump_age:
+        amt = min(p1_s*0.25, LSA-p1_lsa); p1_s -= amt; joint_i += amt; p1_lsa += amt
+    if p2_a == p2_lump_age:
+        amt = min(p2_s*0.25, LSA-p2_lsa); p2_s -= amt; joint_i += amt; p2_lsa += amt
+
+    # Net Goal
+    goal = curr_spend if year >= retire_in_yrs else 0
+    if p1_a >= p2_drop_age: goal *= (1-p1_red)*(1-p2_red)
+    elif p1_a >= p1_drop_age: goal *= (1-p1_red)
+    goal += splurges.get(p1_a, 0)
+
+    # 1. Individual Taxable Base
+    p1_fixed = (p1_curr_sp if p1_a >= p1_sp_age else 0) + sum(v*((1+infl)**year) for k,v in p1_db.items() if p1_a >= k)
+    p2_fixed = (p2_curr_sp if p2_a >= p2_sp_age else 0) + sum(v*((1+infl)**year) for k,v in p2_db.items() if p2_a >= k)
     
-    # 1. Guaranteed Income Base
-    db_income = sum(amt * ((1 + inflation_rate)**(age - curr_age)) for s_age, amt in db_schemes.items() if age >= s_age)
-    sp_rec = temp_sp if age >= sp_age else 0
-    fixed_taxable = db_income + sp_rec
-    net_needed = max(0, target_net - fixed_taxable)
+    # 2. Smart PA Bedding (Both Partners)
+    p1_pa_draw = min(p1_s, max(0, PA-p1_fixed), goal/2 if goal > 0 else 0)
+    p2_pa_draw = min(p2_s, max(0, PA-p2_fixed), (goal-p1_pa_draw) if goal > 0 else 0)
+    p1_s -= p1_pa_draw; p2_s -= p2_pa_draw
     
-    # --- SMART PA BEDDING LOGIC ---
-    # Draw from SIPP first to fill the Personal Allowance at 0% tax
-    remaining_pa = max(0, PA_BASE - fixed_taxable)
-    pa_fill_draw = min(temp_sipp, remaining_pa, net_needed)
-    temp_sipp -= pa_fill_draw
-    
-    # Update need after the 'free' SIPP draw
-    net_after_pa = max(0, net_needed - pa_fill_draw)
-    
-    # 2. Tax-Free Pot Draw (Bridging the gap)
-    draw_tf = min(temp_tf_pot, net_after_pa)
-    temp_tf_pot -= draw_tf
-    
-    # 3. Final Taxable SIPP Draw (The 'Gross-Up' Pass)
-    final_gap = max(0, net_after_pa - draw_tf)
-    draw_sipp_taxable_gross, tax_paid = 0, 0
-    
+    net_needed = max(0, goal - (p1_fixed + p2_fixed + p1_pa_draw + p2_pa_draw))
+
+    # 3. ISA / Tax-Free Pot
+    draw_isa = min(joint_i, net_needed)
+    joint_i -= draw_isa
+    final_gap = max(0, net_needed - draw_isa)
+
+    # 4. Taxable Gross Up (Split 50/50 to stay in low brackets)
+    p1_tax, p2_tax, p1_sipp_net, p2_sipp_net = 0, 0, 0, 0
     if final_gap > 0:
-        low, high = final_gap, final_gap * 4
-        for _ in range(20):
-            mid = (low + high) / 2
-            tot_taxable = mid + fixed_taxable + pa_fill_draw # Total taxable income this year
-            pa = max(0, PA_BASE - (max(0, tot_taxable - TAPER_START) / 2))
-            tax = 0
-            if tot_taxable > BASIC_LIMIT:
-                tax += (BASIC_LIMIT - pa) * BR + (tot_taxable - BASIC_LIMIT) * HR
-            elif tot_taxable > pa:
-                tax += (tot_taxable - pa) * BR
+        def calc_tax(gross, fixed, pa_draw):
+            tot = gross + fixed + pa_draw
+            pa = max(0, PA - (max(0, tot - TAPER)/2))
+            if tot > BR_LIMIT: return (BR_LIMIT-pa)*0.2 + (tot-BR_LIMIT)*0.4
+            return max(0, (tot-pa)*0.2)
+
+        half_gap = final_gap / 2
+        # Simple binary search for each
+        for p_idx in [1, 2]:
+            low, high = half_gap, half_gap * 3
+            fixed = p1_fixed if p_idx == 1 else p2_fixed
+            pa_d = p1_pa_draw if p_idx == 1 else p2_pa_draw
+            pot = p1_s if p_idx == 1 else p2_s
+            for _ in range(15):
+                mid = (low + high) / 2
+                if (mid - calc_tax(mid, fixed, pa_d)) < half_gap: low = mid
+                else: high = mid
             
-            # We already used pa_fill_draw, so we only need to cover the tax increase
-            if (mid - tax) < final_gap: low = mid
-            else: high = mid
-        draw_sipp_taxable_gross = min(temp_sipp, high)
-        tax_paid = max(0, draw_sipp_taxable_gross - final_gap)
-        temp_sipp -= draw_sipp_taxable_gross
+            actual_draw = min(pot, high)
+            tax = calc_tax(actual_draw, fixed, pa_d)
+            if p_idx == 1: 
+                p1_tax = tax; p1_sipp_net = actual_draw - tax; p1_s -= actual_draw
+            else: 
+                p2_tax = tax; p2_sipp_net = actual_draw - tax; p2_s -= actual_draw
 
     data.append({
-        "Age": age, "Total Wealth": round(temp_tf_pot + temp_sipp),
-        "Tax-Free Pot": round(temp_tf_pot), "SIPP": round(temp_sipp),
-        "DB Income": round(db_income), "State Pension": round(sp_rec),
-        "Tax-Free Draw": round(draw_tf), "SIPP (Net)": round(pa_fill_draw + final_gap),
-        "Tax Paid": round(tax_paid), "Target Net": round(target_net)
+        "Year": year, "P1_Age": p1_a, "P2_Age": p2_a,
+        "Total Wealth": round(p1_s + p2_s + joint_i),
+        "P1_SIPP": round(p1_s), "P2_SIPP": round(p2_s), "Joint_ISA": round(joint_i),
+        "Tax_Paid": round(p1_tax + p2_tax), "Target_Net": round(goal),
+        "Income_P1": round(p1_fixed + p1_pa_draw + p1_sipp_net),
+        "Income_P2": round(p2_fixed + p2_pa_draw + p2_sipp_net),
+        "ISA_Draw": round(draw_isa)
     })
-    temp_spend *= (1 + inflation_rate); temp_sp *= (1 + inflation_rate)
+    curr_spend *= (1+infl); p1_curr_sp *= (1+infl); p2_curr_sp *= (1+infl)
 
 df = pd.DataFrame(data)
 
 # --- 5. VISUALS ---
-m1, m2, m3 = st.columns(3)
-m1.metric("Final Wealth (Age 100)", f"£{df['Total Wealth'].iloc[-1]:,}")
-m2.metric("Total Tax Bill", f"£{df['Tax Paid'].sum():,}")
-m3.metric("Plan Status", "SECURE" if df['Total Wealth'].iloc[-1] > 0 else "EXHAUSTED", 
-          delta_color="normal" if df['Total Wealth'].iloc[-1] > 0 else "inverse")
+c1, c2, c3 = st.columns(3)
+c1.metric("Final Wealth (Year 45)", f"£{df['Total Wealth'].iloc[-1]:,}")
+c2.metric("Total Tax (HMRC)", f"£{df['Tax_Paid'].sum():,}")
+c3.metric("Status", "SECURE" if df['Total Wealth'].iloc[-1] > 0 else "EXHAUSTED")
 
-st.subheader("Annual Income Stack vs Tax Drag")
 fig = go.Figure()
-fig.add_trace(go.Bar(x=df['Age'], y=df['DB Income'], name='DB Pension', marker_color='#9467bd'))
-fig.add_trace(go.Bar(x=df['Age'], y=df['State Pension'], name='State Pension', marker_color='#2ca02c'))
-fig.add_trace(go.Bar(x=df['Age'], y=df['Tax-Free Draw'], name='Tax-Free Cash Draw', marker_color='#1f77b4'))
-fig.add_trace(go.Bar(x=df['Age'], y=df['SIPP (Net)'], name='SIPP (Net)', marker_color='#ff7f0e'))
-fig.add_trace(go.Scatter(x=df['Age'], y=df['Tax Paid'], name='Tax (HMRC)', line=dict(color='#d62728', width=2)))
-fig.update_layout(barmode='stack', hovermode="x unified", xaxis_title="Age", yaxis_title="£ Amount")
+for col, name, color in [("Income_P1", "Partner 1 Income", "#9467bd"), 
+                         ("Income_P2", "Partner 2 Income", "#2ca02c"), 
+                         ("ISA_Draw", "Joint ISA Draw", "#1f77b4")]:
+    fig.add_trace(go.Bar(x=df['P1_Age'], y=df[col], name=name, marker_color=color))
+fig.add_trace(go.Scatter(x=df['P1_Age'], y=df['Tax_Paid'], name="Combined Tax", line=dict(color='red')))
+fig.update_layout(barmode='stack', title="Household Income Stack", xaxis_title="P1 Age")
 st.plotly_chart(fig, use_container_width=True)
 
-st.subheader("Asset Depletion")
-st.line_chart(df.set_index("Age")[["Tax-Free Pot", "SIPP", "Total Wealth"]])
-
-with st.expander("📊 View Detailed Yearly Data Table"):
+st.subheader("Household Wealth Projection")
+st.line_chart(df.set_index("P1_Age")[["P1_SIPP", "P2_SIPP", "Joint_ISA", "Total Wealth"]])
+with st.expander("📊 Detailed Household Data"):
     st.dataframe(df)
-    st.download_button(label="📩 Download Table as CSV", data=df.to_csv(index=False).encode('utf-8'), 
-                       file_name='retirement_projection.csv', mime='text/csv')
