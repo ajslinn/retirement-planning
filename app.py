@@ -18,11 +18,6 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# Safety Check: Reset if structure changed from previous versions
-if 'defaults' in st.session_state:
-    if "p1_age" not in st.session_state.defaults:
-        del st.session_state['defaults']
-
 if 'defaults' not in st.session_state:
     st.session_state.defaults = {
         "mode": "Joint", "p1_age": 55, "p2_age": 53, "retire_year": 5,
@@ -34,34 +29,11 @@ if 'defaults' not in st.session_state:
         "splurge": ""
     }
 
-# --- 2. USER GUIDE ---
-st.title("Retirement Planner Pro (2026/27)")
-
-with st.expander("📖 USER GUIDE & SYSTEM LOGIC", expanded=False):
-    st.write("Toggle between **Single** and **Joint** modes in the sidebar. The engine dynamically adjusts tax allowances.")
-    st.markdown("---")
-    col_g1, col_g2 = st.columns(2)
-    with col_g1:
-        st.subheader("Tax Optimization")
-        st.write("The model automatically utilizes the £12,570 Personal Allowance per person. In Joint mode, it splits withdrawals to keep both partners in the lowest tax bracket.")
-    with col_g2:
-        st.subheader("Waterfall Methodology")
-        st.write("1. Guaranteed Income (DB/State Pension) -> 2. SIPP 'Allowance Fill' (0% Tax) -> 3. ISA/Tax-Free Cash -> 4. Taxable SIPP (Grossed up).")
-
-# --- 3. SIDEBAR: MODE TOGGLE & INPUTS ---
+# --- 2. SIDEBAR ---
 with st.sidebar:
     st.header("⚙️ Configuration")
     mode = st.radio("Planning Mode", ["Single", "Joint"], index=1 if st.session_state.defaults["mode"] == "Joint" else 0)
     
-    st.header("💾 Profile Management")
-    uploaded_file = st.file_uploader("Upload '.json' profile", type="json")
-    if uploaded_file is not None:
-        try:
-            st.session_state.defaults.update(json.load(uploaded_file))
-            st.success("Profile Loaded!")
-        except: st.error("Invalid Format")
-
-    # CONDITIONAL TABS
     if mode == "Joint":
         tab_p1, tab_p2, tab_joint = st.tabs(["Partner 1", "Partner 2", "Household"])
     else:
@@ -71,8 +43,8 @@ with st.sidebar:
         p1_age_start = st.number_input("P1 Age", value=int(st.session_state.defaults["p1_age"]))
         p1_sipp = st.number_input("P1 SIPP (£)", value=float(st.session_state.defaults["p1_sipp"]))
         p1_sp_age = st.slider("P1 State Pension Age", 66, 68, int(st.session_state.defaults["p1_sp_age"]))
-        p1_sp_amt = st.number_input("P1 State Pension (£)", value=float(st.session_state.defaults["p1_sp_amt"]))
-        p1_db_in = st.text_input("P1 DB (Age:Amt)", value=st.session_state.defaults["p1_db"])
+        p1_sp_amt = st.number_input("P1 Annual State Pension (£)", value=float(st.session_state.defaults["p1_sp_amt"]))
+        p1_db_in = st.text_input("P1 DB Pensions (Age:Amt)", value=st.session_state.defaults["p1_db"])
         p1_lump_age = st.slider("P1 Tax-Free Age", 55, 75, int(st.session_state.defaults["p1_lump_age"]))
 
     if mode == "Joint":
@@ -80,11 +52,10 @@ with st.sidebar:
             p2_age_start = st.number_input("P2 Age", value=int(st.session_state.defaults["p2_age"]))
             p2_sipp = st.number_input("P2 SIPP (£)", value=float(st.session_state.defaults["p2_sipp"]))
             p2_sp_age = st.slider("P2 State Pension Age", 66, 68, int(st.session_state.defaults["p2_sp_age"]))
-            p2_sp_amt = st.number_input("P2 State Pension (£)", value=float(st.session_state.defaults["p2_sp_amt"]))
-            p2_db_in = st.text_input("P2 DB (Age:Amt)", value=st.session_state.defaults["p2_db"])
+            p2_sp_amt = st.number_input("P2 Annual State Pension (£)", value=float(st.session_state.defaults["p2_sp_amt"]))
+            p2_db_in = st.text_input("P2 DB Pensions (Age:Amt)", value=st.session_state.defaults["p2_db"])
             p2_lump_age = st.slider("P2 Tax-Free Age", 55, 75, int(st.session_state.defaults["p2_lump_age"]))
     else:
-        # Defaults for Single Mode to keep engine stable
         p2_age_start, p2_sipp, p2_sp_age, p2_sp_amt, p2_db_in, p2_lump_age = 0, 0, 99, 0, "", 99
 
     with tab_joint:
@@ -99,11 +70,7 @@ with st.sidebar:
         p2_red = st.slider("Addl Reduction (%)", 0, 50, int(st.session_state.defaults["p2_reduction"])) / 100
         splurge_in = st.text_input("Splurges (P1_Age:Amt)", value=st.session_state.defaults["splurge"])
 
-    # Export Logic
-    exp = {**st.session_state.defaults, "mode": mode}
-    st.download_button("📥 Save Profile", json.dumps(exp, indent=4), "retirement_profile.json")
-
-# --- 4. CALCULATION ENGINE ---
+# --- 3. CALCULATION ENGINE ---
 PA, BR_LIMIT, TAPER, LSA = 12570, 50270, 100000, 268275
 
 def parse_kv(text):
@@ -126,6 +93,7 @@ for year in range(46):
     p1_a, p2_a = p1_age_start + year, p2_age_start + year
     p1_s *= (1+growth); p2_s *= (1+growth); joint_i *= (1+growth)
 
+    # Lump Sums
     if p1_a == p1_lump_age:
         amt = min(p1_s*0.25, LSA-p1_lsa); p1_s -= amt; joint_i += amt; p1_lsa += amt
     if mode == "Joint" and p2_a == p2_lump_age:
@@ -136,19 +104,28 @@ for year in range(46):
     elif p1_a >= p1_drop_age: goal *= (1-p1_red)
     goal += splurges.get(p1_a, 0)
 
-    p1_f = (p1_curr_sp if p1_a >= p1_sp_age else 0) + sum(v*((1+infl)**year) for k,v in p1_db.items() if p1_a >= k)
-    p2_f = (p2_curr_sp if p2_a >= p2_sp_age else 0) + sum(v*((1+infl)**year) for k,v in p2_db.items() if p2_a >= k)
+    # State Pension tracking for the graph
+    p1_sp_received = p1_curr_sp if p1_a >= p1_sp_age else 0
+    p2_sp_received = (p2_curr_sp if p2_a >= p2_sp_age else 0) if mode == "Joint" else 0
     
-    # 2. Smart PA Bedding
-    p1_pa_d = min(p1_s, max(0, PA-p1_f), (goal/2 if mode=="Joint" else goal))
-    p2_pa_d = min(p2_s, max(0, PA-p2_f), (goal - p1_pa_d)) if mode=="Joint" else 0
+    # DB Income
+    p1_f_db = sum(v*((1+infl)**year) for k,v in p1_db.items() if p1_a >= k)
+    p2_f_db = (sum(v*((1+infl)**year) for k,v in p2_db.items() if p2_a >= k)) if mode == "Joint" else 0
+    
+    p1_total_fixed = p1_sp_received + p1_f_db
+    p2_total_fixed = p2_sp_received + p2_f_db
+    
+    # PA Bedding (Individual SIPPs)
+    p1_pa_d = min(p1_s, max(0, PA-p1_total_fixed), (goal/2 if mode=="Joint" else goal))
+    p2_pa_d = min(p2_s, max(0, PA-p2_total_fixed), (goal - p1_pa_d)) if mode=="Joint" else 0
     p1_s -= p1_pa_d; p2_s -= p2_pa_d
     
-    net_needed = max(0, goal - (p1_f + p2_f + p1_pa_d + p2_pa_d))
+    net_needed = max(0, goal - (p1_total_fixed + p2_total_fixed + p1_pa_d + p2_pa_d))
     draw_isa = min(joint_i, net_needed)
     joint_i -= draw_isa
     final_gap = max(0, net_needed - draw_isa)
 
+    # Taxable SIPP Logic
     p1_tax, p2_tax, p1_sn, p2_sn = 0, 0, 0, 0
     if final_gap > 0:
         def calc_tax(gross, fixed, pa_draw):
@@ -161,53 +138,58 @@ for year in range(46):
         for p_idx in ([1, 2] if mode == "Joint" else [1]):
             target = final_gap * share
             low, high = target, target * 3
-            f, pad, s = (p1_f, p1_pa_d, p1_s) if p_idx == 1 else (p2_f, p2_pa_d, p2_s)
+            f, pad, s = (p1_total_fixed, p1_pa_d, p1_s) if p_idx == 1 else (p2_total_fixed, p2_pa_d, p2_s)
             for _ in range(15):
                 mid = (low + high) / 2
                 if (mid - calc_tax(mid, f, pad)) < target: low = mid
                 else: high = mid
-            
             ad = min(s, high); tx = calc_tax(ad, f, pad)
             if p_idx == 1: p1_tax = tx; p1_sn = ad - tx; p1_s -= ad
             else: p2_tax = tx; p2_sn = ad - tx; p2_s -= ad
 
     data.append({
-        "Year": year, "Age (P1)": p1_a, 
+        "Age": p1_a, "Year": year,
         "Total Wealth": round(p1_s + p2_s + joint_i),
-        "P1_SIPP": round(p1_s), "P2_SIPP": round(p2_s), "Joint_ISA": round(joint_i),
-        "Tax Paid": round(p1_tax + p2_tax), "Target Net": round(goal),
-        "P1 Income": round(p1_f + p1_pa_d + p1_sn),
-        "P2 Income": round(p2_f + p2_pa_d + p2_sn) if mode=="Joint" else 0,
-        "ISA Draw": round(draw_isa)
+        "P1 State Pension": round(p1_sp_received),
+        "P2 State Pension": round(p2_sp_received),
+        "P1 Private Income": round(p1_f_db + p1_pa_d + p1_sn),
+        "P2 Private Income": round(p2_f_db + p2_pa_d + p2_sn) if mode=="Joint" else 0,
+        "ISA Draw": round(draw_isa),
+        "Tax": round(p1_tax + p2_tax),
+        "P1_SIPP": round(p1_s), "P2_SIPP": round(p2_s), "Joint_ISA": round(joint_i)
     })
     curr_spend *= (1+infl); p1_curr_sp *= (1+infl); p2_curr_sp *= (1+infl)
 
 df = pd.DataFrame(data)
 
-# --- 5. VISUALS ---
+# --- 4. VISUALS ---
 m1, m2, m3 = st.columns(3)
-m1.metric("Final Wealth (Year 45)", f"£{df['Total Wealth'].iloc[-1]:,}")
-m2.metric("Total Tax Bill", f"£{df['Tax Paid'].sum():,}")
+m1.metric("Final Wealth", f"£{df['Total Wealth'].iloc[-1]:,}")
+m2.metric("Total Tax Bill", f"£{df['Tax'].sum():,}")
 m3.metric("Plan Status", "SECURE" if df['Total Wealth'].iloc[-1] > 0 else "EXHAUSTED")
 
-st.subheader("Annual Income Breakdown vs Combined Tax")
+st.subheader("Household Income Stack (Individual State Pensions Highlighted)")
 fig = go.Figure()
-fig.add_trace(go.Bar(x=df['Age (P1)'], y=df['P1 Income'], name='P1 Income', marker_color='#9467bd'))
+
+# Stack 1: P1 State Pension
+fig.add_trace(go.Bar(x=df['Age'], y=df['P1 State Pension'], name='P1 State Pension', marker_color='#2ca02c'))
+# Stack 2: P2 State Pension
 if mode == "Joint":
-    fig.add_trace(go.Bar(x=df['Age (P1)'], y=df['P2 Income'], name='P2 Income', marker_color='#2ca02c'))
-fig.add_trace(go.Bar(x=df['Age (P1)'], y=df['ISA Draw'], name='ISA/Tax-Free Draw', marker_color='#1f77b4'))
-fig.add_trace(go.Scatter(x=df['Age (P1)'], y=df['Tax Paid'], name='Tax (HMRC)', line=dict(color='red', width=2)))
-fig.update_layout(barmode='stack', hovermode="x unified", xaxis_title="Age (P1)")
+    fig.add_trace(go.Bar(x=df['Age'], y=df['P2 State Pension'], name='P2 State Pension', marker_color='#b2df8a'))
+# Stack 3: P1 Private (SIPP + DB)
+fig.add_trace(go.Bar(x=df['Age'], y=df['P1 Private Income'], name='P1 Private (SIPP/DB)', marker_color='#9467bd'))
+# Stack 4: P2 Private (SIPP + DB)
+if mode == "Joint":
+    fig.add_trace(go.Bar(x=df['Age'], y=df['P2 Private Income'], name='P2 Private (SIPP/DB)', marker_color='#cab2d6'))
+# Stack 5: ISA
+fig.add_trace(go.Bar(x=df['Age'], y=df['ISA Draw'], name='ISA/Tax-Free Draw', marker_color='#1f77b4'))
+# Line: Tax Paid
+fig.add_trace(go.Scatter(x=df['Age'], y=df['Tax'], name='Tax Paid', line=dict(color='red', width=2)))
+
+fig.update_layout(barmode='stack', hovermode="x unified", xaxis_title="Age (P1)", yaxis_title="£ Amount")
 st.plotly_chart(fig, use_container_width=True)
 
-st.subheader("Asset Depletion Over Time")
-cols_to_plot = ["Total Wealth", "P1_SIPP", "Joint_ISA"]
-if mode == "Joint": cols_to_plot.append("P2_SIPP")
-st.line_chart(df.set_index("Age (P1)")[cols_to_plot])
+st.line_chart(df.set_index("Age")[["Total Wealth", "P1_SIPP", "Joint_ISA"] + (["P2_SIPP"] if mode=="Joint" else [])])
 
-# --- 6. SUMMARY TABLE ---
 with st.expander("📊 View Detailed Yearly Data Table"):
     st.dataframe(df)
-    csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button(label="📩 Download Table as CSV", data=csv, 
-                       file_name='retirement_projection.csv', mime='text/csv')
