@@ -6,7 +6,6 @@ import json
 # --- 1. CONFIG & SESSION STATE ---
 st.set_page_config(page_title="Retirement Planner Pro", layout="wide")
 
-# Professional UI Styling
 st.markdown("""
     <style>
     .main { background-color: #f5f7f9; }
@@ -19,7 +18,6 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# Initialize Session State
 if 'defaults' not in st.session_state:
     st.session_state.defaults = {
         "mode": "Joint", "p1_age": 55, "p2_age": 53, "retire_year": 5,
@@ -34,14 +32,11 @@ if 'defaults' not in st.session_state:
 # --- 2. SIDEBAR & PROFILE MANAGEMENT ---
 with st.sidebar:
     st.header("⚙️ Configuration")
-    
-    # Mode Selector
     mode_idx = 0 if st.session_state.defaults.get("mode") == "Single" else 1
     mode = st.radio("Planning Mode", ["Single", "Joint"], index=mode_idx)
     
     st.header("💾 Profile Management")
     uploaded_file = st.file_uploader("Upload '.json' profile", type="json")
-    
     if uploaded_file is not None:
         try:
             file_contents = uploaded_file.read()
@@ -50,10 +45,8 @@ with st.sidebar:
                 st.session_state.defaults.update(loaded_data)
                 st.success("Profile Loaded!")
                 st.rerun()
-        except Exception:
-            pass # Silently handle the Streamlit rerun flicker
+        except Exception: pass
 
-    # UI Tabs based on Mode
     if mode == "Joint":
         tab_p1, tab_p2, tab_joint = st.tabs(["Partner 1", "Partner 2", "Household"])
     else:
@@ -63,7 +56,7 @@ with st.sidebar:
         p1_age_start = st.number_input("P1 Age", value=int(st.session_state.defaults["p1_age"]))
         p1_sipp = st.number_input("P1 SIPP (£)", value=float(st.session_state.defaults["p1_sipp"]))
         p1_sp_age = st.slider("P1 State Pension Age", 66, 68, int(st.session_state.defaults["p1_sp_age"]))
-        p1_sp_amt = st.number_input("P1 Annual State Pension (£)", value=float(st.session_state.defaults["p1_sp_amt"]))
+        p1_sp_amt = st.number_input("P1 State Pension (£)", value=float(st.session_state.defaults["p1_sp_amt"]))
         p1_db_in = st.text_input("P1 DB (Age:Amt)", value=st.session_state.defaults["p1_db"])
         p1_lump_age = st.slider("P1 Tax-Free Age", 55, 75, int(st.session_state.defaults["p1_lump_age"]))
 
@@ -72,7 +65,7 @@ with st.sidebar:
             p2_age_start = st.number_input("P2 Age", value=int(st.session_state.defaults["p2_age"]))
             p2_sipp = st.number_input("P2 SIPP (£)", value=float(st.session_state.defaults["p2_sipp"]))
             p2_sp_age = st.slider("P2 State Pension Age", 66, 68, int(st.session_state.defaults["p2_sp_age"]))
-            p2_sp_amt = st.number_input("P2 Annual State Pension (£)", value=float(st.session_state.defaults["p2_sp_amt"]))
+            p2_sp_amt = st.number_input("P2 State Pension (£)", value=float(st.session_state.defaults["p2_sp_amt"]))
             p2_db_in = st.text_input("P2 DB (Age:Amt)", value=st.session_state.defaults["p2_db"])
             p2_lump_age = st.slider("P2 Tax-Free Age", 55, 75, int(st.session_state.defaults["p2_lump_age"]))
     else:
@@ -90,22 +83,12 @@ with st.sidebar:
         p2_red = st.slider("Addl Reduction (%)", 0, 50, int(st.session_state.defaults["p2_reduction"])) / 100
         splurge_in = st.text_input("Splurges (P1_Age:Amt)", value=st.session_state.defaults["splurge"])
 
-    # Export Logic
     st.markdown("---")
-    export_data = {
-        "mode": mode, "p1_age": p1_age_start, "p2_age": p2_age_start, "retire_year": retire_in_yrs,
-        "isa_bal": isa_joint, "p1_sipp": p1_sipp, "p2_sipp": p2_sipp, "growth": growth*100, 
-        "inflation": infl*100, "p1_sp_age": p1_sp_age, "p1_sp_amt": p1_sp_amt, 
-        "p2_sp_age": p2_sp_age, "p2_sp_amt": p2_sp_amt, "p1_db": p1_db_in, "p2_db": p2_db_in, 
-        "p1_lump_age": p1_lump_age, "p2_lump_age": p2_lump_age, "spend": target_spend, 
-        "p1_age_drop": p1_drop_age, "p1_reduction": p1_red*100, "p2_age_drop": p2_drop_age, 
-        "p2_reduction": p2_red*100, "splurge": splurge_in
-    }
-    st.download_button(label="📥 Save Profile as JSON", data=json.dumps(export_data, indent=4), 
-                       file_name="retirement_profile.json", mime="application/json")
+    export_data = {**st.session_state.defaults, "mode": mode, "p1_age": p1_age_start, "p2_age": p2_age_start}
+    st.download_button("📥 Save Profile as JSON", json.dumps(export_data, indent=4), "retirement_profile.json")
 
 # --- 3. CALCULATION ENGINE ---
-PA, BR_LIMIT, TAPER, LSA = 12570, 50270, 100000, 268275
+PA, BR_LIMIT, TAPER, LSA, MIN_AGE = 12570, 50270, 100000, 268275, 55
 
 def parse_kv(text):
     d = {}
@@ -127,19 +110,23 @@ for year in range(46):
     p1_a, p2_a = p1_age_start + year, p2_age_start + year
     p1_s *= (1+growth); p2_s *= (1+growth); joint_i *= (1+growth)
 
-    # Lump Sums
-    if p1_a == p1_lump_age:
+    # Access Guard: Check UK Minimum Pension Age
+    p1_can_access = p1_a >= MIN_AGE
+    p2_can_access = p2_a >= MIN_AGE
+
+    # 1. Tax-Free Lump Sums
+    if p1_can_access and p1_a == p1_lump_age:
         amt = min(p1_s*0.25, LSA-p1_lsa); p1_s -= amt; joint_i += amt; p1_lsa += amt
-    if mode == "Joint" and p2_a == p2_lump_age:
+    if mode == "Joint" and p2_can_access and p2_a == p2_lump_age:
         amt = min(p2_s*0.25, LSA-p2_lsa); p2_s -= amt; joint_i += amt; p2_lsa += amt
 
-    # Goal Setting
+    # 2. Income Goal
     goal = curr_spend if year >= retire_in_yrs else 0
     if p1_a >= p2_drop_age: goal *= (1-p1_red)*(1-p2_red)
     elif p1_a >= p1_drop_age: goal *= (1-p1_red)
     goal += splurges.get(p1_a, 0)
 
-    # Fixed Income Sources
+    # 3. Fixed Sources
     p1_sp_rec = p1_curr_sp if p1_a >= p1_sp_age else 0
     p2_sp_rec = (p2_curr_sp if p2_a >= p2_sp_age else 0) if mode == "Joint" else 0
     p1_f_db = sum(v*((1+infl)**year) for k,v in p1_db.items() if p1_a >= k)
@@ -148,18 +135,18 @@ for year in range(46):
     p1_tot_f = p1_sp_rec + p1_f_db
     p2_tot_f = p2_sp_rec + p2_f_db
     
-    # 0% Tax Allowance Bedding
-    p1_pa_d = min(p1_s, max(0, PA-p1_tot_f), (goal/2 if mode=="Joint" else goal))
-    p2_pa_d = min(p2_s, max(0, PA-p2_tot_f), (goal - p1_pa_d)) if mode=="Joint" else 0
+    # 4. 0% Tax Allowance Bedding (GUARDED BY AGE)
+    p1_pa_d = min(p1_s, max(0, PA-p1_tot_f), (goal/2 if mode=="Joint" else goal)) if p1_can_access else 0
+    p2_pa_d = min(p2_s, max(0, PA-p2_tot_f), (goal - p1_pa_d)) if (mode=="Joint" and p2_can_access) else 0
     p1_s -= p1_pa_d; p2_s -= p2_pa_d
     
-    # Liquid Gap (ISA)
+    # 5. Liquid Gap (ISA)
     net_needed = max(0, goal - (p1_tot_f + p2_tot_f + p1_pa_d + p2_pa_d))
     draw_isa = min(joint_i, net_needed)
     joint_i -= draw_isa
     final_gap = max(0, net_needed - draw_isa)
 
-    # Taxable Gross-up Logic
+    # 6. Taxable Draw (GUARDED BY AGE)
     p1_tax, p2_tax, p1_sn, p2_sn = 0, 0, 0, 0
     if final_gap > 0:
         def calc_tax(gross, fixed, pa_draw):
@@ -171,6 +158,9 @@ for year in range(46):
         share = 0.5 if mode == "Joint" else 1.0
         for p_idx in ([1, 2] if mode == "Joint" else [1]):
             target = final_gap * share
+            can_access = p1_can_access if p_idx == 1 else p2_can_access
+            if not can_access: continue # Skip if under 55
+            
             low, high = target, target * 3
             f, pad, s = (p1_tot_f, p1_pa_d, p1_s) if p_idx == 1 else (p2_tot_f, p2_pa_d, p2_s)
             for _ in range(15):
@@ -184,7 +174,7 @@ for year in range(46):
     data_log.append({
         "Age": p1_a, "P1 State Pension": round(p1_sp_rec), "P2 State Pension": round(p2_sp_rec),
         "P1 Private Income": round(p1_f_db + p1_pa_d + p1_sn),
-        "P2 Private Income": round(p2_f_db + p2_pa_d + p2_sn) if mode=="Joint" else 0,
+        "P2 Private Income": round(p2_f_db + p2_pa_d + p2_sn),
         "ISA Draw": round(draw_isa), "Tax": round(p1_tax + p2_tax), "Total Wealth": round(p1_s + p2_s + joint_i),
         "P1_SIPP": round(p1_s), "P2_SIPP": round(p2_s), "Joint_ISA": round(joint_i)
     })
@@ -195,7 +185,7 @@ df = pd.DataFrame(data_log)
 # --- 4. VISUALS ---
 st.title("Retirement Projection")
 m1, m2, m3 = st.columns(3)
-m1.metric("Final Wealth (Year 45)", f"£{df['Total Wealth'].iloc[-1]:,}")
+m1.metric("Final Wealth", f"£{df['Total Wealth'].iloc[-1]:,}")
 m2.metric("Total Tax Bill", f"£{df['Tax'].sum():,}")
 m3.metric("Plan Status", "SECURE" if df['Total Wealth'].iloc[-1] > 0 else "EXHAUSTED")
 
@@ -203,17 +193,15 @@ fig = go.Figure()
 fig.add_trace(go.Bar(x=df['Age'], y=df['P1 State Pension'], name='P1 State Pension', marker_color='#2ca02c'))
 if mode == "Joint":
     fig.add_trace(go.Bar(x=df['Age'], y=df['P2 State Pension'], name='P2 State Pension', marker_color='#b2df8a'))
-fig.add_trace(go.Bar(x=df['Age'], y=df['P1 Private Income'], name='P1 Private (SIPP/DB)', marker_color='#9467bd'))
+fig.add_trace(go.Bar(x=df['Age'], y=df['P1 Private Income'], name='P1 Private', marker_color='#9467bd'))
 if mode == "Joint":
-    fig.add_trace(go.Bar(x=df['Age'], y=df['P2 Private Income'], name='P2 Private (SIPP/DB)', marker_color='#cab2d6'))
-fig.add_trace(go.Bar(x=df['Age'], y=df['ISA Draw'], name='ISA/Tax-Free Draw', marker_color='#1f77b4'))
-fig.add_trace(go.Scatter(x=df['Age'], y=df['Tax'], name='Tax Paid', line=dict(color='red', width=2)))
-
-fig.update_layout(barmode='stack', hovermode="x unified", xaxis_title="Age (P1)", yaxis_title="£ Amount")
+    fig.add_trace(go.Bar(x=df['Age'], y=df['P2 Private Income'], name='P2 Private', marker_color='#cab2d6'))
+fig.add_trace(go.Bar(x=df['Age'], y=df['ISA Draw'], name='ISA/Tax-Free', marker_color='#1f77b4'))
+fig.add_trace(go.Scatter(x=df['Age'], y=df['Tax'], name='Tax', line=dict(color='red', width=2)))
+fig.update_layout(barmode='stack', hovermode="x unified", xaxis_title="Age (P1)")
 st.plotly_chart(fig, use_container_width=True)
 
-st.subheader("Asset Depletion Over Time")
 st.line_chart(df.set_index("Age")[["Total Wealth", "P1_SIPP", "Joint_ISA"] + (["P2_SIPP"] if mode=="Joint" else [])])
 
-with st.expander("📊 View Detailed Yearly Data Table"):
+with st.expander("📊 Detailed Data Table"):
     st.dataframe(df)
