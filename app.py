@@ -60,7 +60,7 @@ with st.sidebar:
     else: p2_age_start, p2_sipp_init, p2_sp_amt, p2_db_in, p2_acc_age, p2_l_age = 0, 0, 0, "", 57, 57
 
     with tabs[-1]:
-        isa_joint = st.number_input("Joint ISA/Savings (£)", value=float(st.session_state.defaults.get("isa_bal", 0)))
+        isa_joint_init = st.number_input("Joint ISA/Savings (£)", value=float(st.session_state.defaults.get("isa_bal", 0)))
         growth = st.slider("Growth (%)", 0.0, 10.0, float(st.session_state.defaults.get("growth", 5.0))) / 100
         infl = st.slider("Inflation (%)", 0.0, 5.0, float(st.session_state.defaults.get("inflation", 2.5))) / 100
         target_spend = st.number_input("Target Annual Spend (£)", value=float(st.session_state.defaults.get("spend", 80000)))
@@ -69,7 +69,7 @@ with st.sidebar:
 
     current_params = {
         "mode": mode, "p1_age": p1_age_start, "p2_age": p2_age_start,
-        "isa_bal": isa_joint, "p1_sipp": p1_sipp_init, "p2_sipp": p2_sipp_init,
+        "isa_bal": isa_joint_init, "p1_sipp": p1_sipp_init, "p2_sipp": p2_sipp_init,
         "growth": growth*100, "inflation": infl*100, "p1_sp_amt": p1_sp_amt, "p2_sp_amt": p2_sp_amt,
         "p1_db": p1_db_in, "p2_db": p2_db_in, "p1_lump_age": p1_l_age, "p2_lump_age": p2_l_age,
         "p1_access_age": p1_acc_age, "p2_access_age": p2_acc_age,
@@ -97,13 +97,16 @@ def calc_tax(income):
     return ((BR - eff_pa) * 0.2) + ((income - BR) * 0.4)
 
 p1_db_map, p2_db_map = parse_kv(p1_db_in), parse_kv(p2_db_in)
-data_log, p1_s, p2_s, joint_i = [], p1_sipp_init, p2_sipp_init, isa_joint
+data_log, p1_s, p2_s, joint_i = [], p1_sipp_init, p2_sipp_init, isa_joint_init
 p1_lsa, p2_lsa, sp_growth = 0, 0, infl + 0.005 if t_lock else infl
 
 for year in range(41):
     p1_a, p2_a = p1_age_start + year, p2_age_start + year
+    
+    # Growth applied first
     p1_s *= (1+growth); p2_s *= (1+growth); joint_i *= (1+growth)
     
+    # 25% Tax-Free Lump Sum
     if not ufpls:
         if p1_a == p1_l_age and p1_a >= p1_acc_age:
             amt = min(p1_s*0.25, LSA-p1_lsa); p1_s -= amt; joint_i += amt; p1_lsa += amt
@@ -118,6 +121,7 @@ for year in range(41):
     p2_sp = (p2_sp_amt * ((1+sp_growth)**year)) if (mode=="Joint" and p2_a >= 67) else 0
     p2_db = sum(v*((1+infl)**year) for k,v in p2_db_map.items() if p2_a >= k)
 
+    # Core Allowance Drawdown
     p1_pa_draw = min(p1_s, max(0, PA - (p1_sp + p1_db)) / (0.75 if ufpls else 1.0)) if p1_a >= p1_acc_age else 0
     p1_s -= p1_pa_draw
     p2_pa_draw = min(p2_s, max(0, PA - (p2_sp + p2_db)) / (0.75 if ufpls else 1.0)) if (mode=="Joint" and p2_a >= p2_acc_age) else 0
@@ -146,10 +150,18 @@ for year in range(41):
     p2_inc = p2_sp + p2_db + (p2_pa_draw + p2_extra) * (0.75 if ufpls else 1.0)
 
     data_log.append({
-        "Age": p1_a, "P1 SP": round(p1_sp), "P1 DB": round(p1_db), "P1 SIPP Draw": round(p1_pa_draw + p1_extra),
-        "P2 SP": round(p2_sp), "P2 DB": round(p2_db), "P2 SIPP Draw": round(p2_pa_draw + p2_extra),
-        "ISA Draw": round(isa_draw_val), "Tax": round(calc_tax(p1_inc) + calc_tax(p2_inc)), 
-        "Total Wealth": round(p1_s + p2_s + joint_i)
+        "Age": p1_a,
+        "P1 Total Income": round(p1_inc),
+        "P2 Total Income": round(p2_inc),
+        "ISA Draw": round(isa_draw_val),
+        "Tax Paid": round(calc_tax(p1_inc) + calc_tax(p2_inc)), 
+        "P1 SIPP Balance": round(p1_s),
+        "P2 SIPP Balance": round(p2_s),
+        "Joint ISA Balance": round(joint_i),
+        "Total Household Wealth": round(p1_s + p2_s + joint_i),
+        # Hidden metrics for charts
+        "p1_sp": round(p1_sp), "p1_db": round(p1_db), "p1_draw": round(p1_pa_draw + p1_extra),
+        "p2_sp": round(p2_sp), "p2_db": round(p2_db), "p2_draw": round(p2_pa_draw + p2_extra)
     })
 
 df = pd.DataFrame(data_log)
@@ -157,25 +169,28 @@ df = pd.DataFrame(data_log)
 # --- 4. DISPLAY ---
 st.title(f"Retirement Forecast: {strat}")
 
-# Income Chart
+# Income Breakdown Chart
 fig_inc = go.Figure(data=[
-    go.Bar(x=df['Age'], y=df['P1 SP'], name="P1 State Pension", marker_color="#4A148C"),
-    go.Bar(x=df['Age'], y=df['P1 DB'], name="P1 DB Pension", marker_color="#7B1FA2"),
-    go.Bar(x=df['Age'], y=df['P1 SIPP Draw'], name="P1 SIPP Draw", marker_color="#9C27B0"),
-    go.Bar(x=df['Age'], y=df['P2 SP'], name="P2 State Pension", marker_color="#1B5E20"),
-    go.Bar(x=df['Age'], y=df['P2 DB'], name="P2 DB Pension", marker_color="#388E3C"),
-    go.Bar(x=df['Age'], y=df['P2 SIPP Draw'], name="P2 SIPP Draw", marker_color="#4CAF50"),
+    go.Bar(x=df['Age'], y=df['p1_sp'], name="P1 State Pension", marker_color="#4A148C"),
+    go.Bar(x=df['Age'], y=df['p1_db'], name="P1 DB Pension", marker_color="#7B1FA2"),
+    go.Bar(x=df['Age'], y=df['p1_draw'], name="P1 SIPP Draw", marker_color="#9C27B0"),
+    go.Bar(x=df['Age'], y=df['p2_sp'], name="P2 State Pension", marker_color="#1B5E20"),
+    go.Bar(x=df['Age'], y=df['p2_db'], name="P2 DB Pension", marker_color="#388E3C"),
+    go.Bar(x=df['Age'], y=df['p2_draw'], name="P2 SIPP Draw", marker_color="#4CAF50"),
     go.Bar(x=df['Age'], y=df['ISA Draw'], name="ISA Draw", marker_color="#1F77B4"),
-    go.Scatter(x=df['Age'], y=df['Tax'], name="Total Tax", line=dict(color='red', width=2))
+    go.Scatter(x=df['Age'], y=df['Tax Paid'], name="Total Tax", line=dict(color='red', width=2))
 ])
-fig_inc.update_layout(barmode='stack', hovermode="x unified", title="Annual Income Sources Breakdown")
+fig_inc.update_layout(barmode='stack', hovermode="x unified", title="Annual Income Breakdown by Source")
 st.plotly_chart(fig_inc, use_container_width=True)
 
-# Wealth Chart
-st.subheader("Asset Depletion (Total Wealth over Time)")
-st.line_chart(df.set_index("Age")["Total Wealth"])
+# Total Wealth Chart
+st.subheader("Asset Depletion Line Chart")
+st.line_chart(df.set_index("Age")["Total Household Wealth"])
 
-# Summary Table
-st.subheader("Yearly Breakdown")
-st.dataframe(df, use_container_width=True)
-st.download_button("📥 Download Results (CSV)", df.to_csv(index=False), "retirement_plan.csv", "text/csv")
+# Detailed Table with Pot Balances
+st.subheader("Yearly Breakdown (Income vs. Pot Balances)")
+display_cols = ["Age", "P1 Total Income", "P2 Total Income", "ISA Draw", "Tax Paid", 
+                "P1 SIPP Balance", "P2 SIPP Balance", "Joint ISA Balance", "Total Household Wealth"]
+st.dataframe(df[display_cols], use_container_width=True)
+
+st.download_button("📥 Export Simulation to CSV", df[display_cols].to_csv(index=False), "pension_forecast.csv", "text/csv")
