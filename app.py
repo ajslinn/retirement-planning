@@ -6,6 +6,7 @@ import json
 # --- 1. CONFIG & SESSION STATE ---
 st.set_page_config(page_title="Retirement Planner Pro", layout="wide")
 
+# Updated defaults with Access Age keys
 if 'defaults' not in st.session_state:
     st.session_state.defaults = {
         "mode": "Joint", "p1_age": 55, "p2_age": 55, "retire_year": 1,
@@ -14,7 +15,7 @@ if 'defaults' not in st.session_state:
         "p1_sp_amt": 12548, "p2_sp_amt": 12548,
         "p1_db": "", "p2_db": "60:2336, 65:5633, 67:6292", 
         "p1_lump_age": 57, "p2_lump_age": 57,
-        "p1_access_age": 57, "p2_access_age": 57, # New Access Age fields
+        "p1_access_age": 57, "p2_access_age": 57, 
         "spend": 80000, "p1_age_drop": 75, "p1_reduction": 20, 
         "strategy": "ISA First", "use_ufpls": False, "triple_lock": True
     }
@@ -26,13 +27,12 @@ with st.sidebar:
     if uploaded_file is not None:
         try:
             loaded_data = json.load(uploaded_file)
-            if any(st.session_state.defaults.get(k) != v for k, v in loaded_data.items()):
-                st.session_state.defaults.update(loaded_data)
-                st.rerun()
+            st.session_state.defaults.update(loaded_data)
+            st.rerun()
         except Exception: st.error("Invalid JSON.")
 
     st.header("⚙️ Global Strategy")
-    mode = st.radio("Mode", ["Single", "Joint"], index=0 if st.session_state.defaults["mode"] == "Single" else 1)
+    mode = st.radio("Mode", ["Single", "Joint"], index=0 if st.session_state.defaults.get("mode") == "Single" else 1)
     strat = st.selectbox("Strategy", ["ISA First", "SIPP to Threshold"], 
                          index=0 if st.session_state.defaults.get("strategy") == "ISA First" else 1)
     ufpls = st.toggle("Use UFPLS (25% Tax-Free Trickle)", value=st.session_state.defaults.get("use_ufpls", False))
@@ -41,30 +41,31 @@ with st.sidebar:
     tabs = st.tabs(["Partner 1", "Partner 2", "Household"]) if mode == "Joint" else st.tabs(["User", "Household"])
     
     with tabs[0]:
-        p1_age_start = st.number_input("P1 Age", value=int(st.session_state.defaults["p1_age"]))
-        p1_sipp_init = st.number_input("P1 SIPP (£)", value=float(st.session_state.defaults["p1_sipp"]))
-        p1_sp_amt = st.number_input("P1 State Pension (£)", value=float(st.session_state.defaults["p1_sp_amt"]))
-        p1_db_in = st.text_input("P1 DB (Age:Amt)", value=st.session_state.defaults["p1_db"])
-        p1_acc_age = st.number_input("P1 Access Age (NMPA)", 50, 75, int(st.session_state.defaults["p1_access_age"]))
-        p1_l_age = st.number_input("P1 Lump Age", 50, 75, int(st.session_state.defaults["p1_lump_age"]))
+        p1_age_start = st.number_input("P1 Age", value=int(st.session_state.defaults.get("p1_age", 55)))
+        p1_sipp_init = st.number_input("P1 SIPP (£)", value=float(st.session_state.defaults.get("p1_sipp", 0)))
+        p1_sp_amt = st.number_input("P1 State Pension (£)", value=float(st.session_state.defaults.get("p1_sp_amt", 12548)))
+        p1_db_in = st.text_input("P1 DB (Age:Amt)", value=st.session_state.defaults.get("p1_db", ""))
+        # Use .get() to prevent the KeyError if session state is stale
+        p1_acc_age = st.number_input("P1 Access Age (NMPA)", 50, 75, int(st.session_state.defaults.get("p1_access_age", 57)))
+        p1_l_age = st.number_input("P1 Lump Age", 50, 75, int(st.session_state.defaults.get("p1_lump_age", 57)))
 
     if mode == "Joint":
         with tabs[1]:
-            p2_age_start = st.number_input("P2 Age", value=int(st.session_state.defaults["p2_age"]))
-            p2_sipp_init = st.number_input("P2 SIPP (£)", value=float(st.session_state.defaults["p2_sipp"]))
-            p2_sp_amt = st.number_input("P2 State Pension (£)", value=float(st.session_state.defaults["p2_sp_amt"]))
-            p2_db_in = st.text_input("P2 DB (Age:Amt)", value=st.session_state.defaults["p2_db"])
-            p2_acc_age = st.number_input("P2 Access Age (NMPA)", 50, 75, int(st.session_state.defaults["p2_access_age"]))
-            p2_l_age = st.number_input("P2 Lump Age", 50, 75, int(st.session_state.defaults["p2_lump_age"]))
+            p2_age_start = st.number_input("P2 Age", value=int(st.session_state.defaults.get("p2_age", 55)))
+            p2_sipp_init = st.number_input("P2 SIPP (£)", value=float(st.session_state.defaults.get("p2_sipp", 0)))
+            p2_sp_amt = st.number_input("P2 State Pension (£)", value=float(st.session_state.defaults.get("p2_sp_amt", 12548)))
+            p2_db_in = st.text_input("P2 DB (Age:Amt)", value=st.session_state.defaults.get("p2_db", ""))
+            p2_acc_age = st.number_input("P2 Access Age (NMPA)", 50, 75, int(st.session_state.defaults.get("p2_access_age", 57)))
+            p2_l_age = st.number_input("P2 Lump Age", 50, 75, int(st.session_state.defaults.get("p2_lump_age", 57)))
     else: p2_age_start, p2_sipp_init, p2_sp_amt, p2_db_in, p2_acc_age, p2_l_age = 0, 0, 0, "", 57, 57
 
     with tabs[-1]:
-        isa_joint = st.number_input("Joint ISA (£)", value=float(st.session_state.defaults["isa_bal"]))
-        growth = st.slider("Growth (%)", 0.0, 10.0, float(st.session_state.defaults["growth"])) / 100
-        infl = st.slider("Inflation (%)", 0.0, 5.0, float(st.session_state.defaults["inflation"])) / 100
-        target_spend = st.number_input("Target Spend (£)", value=float(st.session_state.defaults["spend"]))
-        p1_drop_age = st.slider("Step-Down Age", 60, 95, int(st.session_state.defaults["p1_age_drop"]))
-        p1_red = st.slider("Reduction %", 0, 50, int(st.session_state.defaults["p1_reduction"])) / 100
+        isa_joint = st.number_input("Joint ISA (£)", value=float(st.session_state.defaults.get("isa_bal", 0)))
+        growth = st.slider("Growth (%)", 0.0, 10.0, float(st.session_state.defaults.get("growth", 5.0))) / 100
+        infl = st.slider("Inflation (%)", 0.0, 5.0, float(st.session_state.defaults.get("inflation", 2.5))) / 100
+        target_spend = st.number_input("Target Spend (£)", value=float(st.session_state.defaults.get("spend", 80000)))
+        p1_drop_age = st.slider("Step-Down Age", 60, 95, int(st.session_state.defaults.get("p1_age_drop", 75)))
+        p1_red = st.slider("Reduction %", 0, 50, int(st.session_state.defaults.get("p1_reduction", 20))) / 100
 
     # Save Profile
     current_params = {
@@ -104,7 +105,6 @@ for year in range(41):
     p1_a, p2_a = p1_age_start + year, p2_age_start + year
     p1_s *= (1+growth); p2_s *= (1+growth); joint_i *= (1+growth)
     
-    # 25% Lump Sum Guard (must be >= access age)
     if not ufpls:
         if p1_a == p1_l_age and p1_a >= p1_acc_age:
             amt = min(p1_s*0.25, LSA-p1_lsa); p1_s -= amt; joint_i += amt; p1_lsa += amt
@@ -119,7 +119,6 @@ for year in range(41):
     p2_sp = (p2_sp_amt * ((1+sp_growth)**year)) if (mode=="Joint" and p2_a >= 67) else 0
     p2_db = sum(v*((1+infl)**year) for k,v in p2_db_map.items() if p2_a >= k)
 
-    # PA Draw (Strict Access Age Guard)
     p1_pa_draw = min(p1_s, max(0, PA - (p1_sp + p1_db)) / (0.75 if ufpls else 1.0)) if p1_a >= p1_acc_age else 0
     p1_s -= p1_pa_draw
     p2_pa_draw = min(p2_s, max(0, PA - (p2_sp + p2_db)) / (0.75 if ufpls else 1.0)) if (mode=="Joint" and p2_a >= p2_acc_age) else 0
@@ -130,52 +129,45 @@ for year in range(41):
 
     if strat == "SIPP to Threshold":
         for p_idx in ([1, 2] if mode=="Joint" else [1]):
-            acc_age = p1_acc_age if p_idx == 1 else p2_acc_age
-            curr_age = p1_a if p_idx == 1 else p2_a
-            
-            if curr_age >= acc_age:
+            acc = p1_acc_age if p_idx == 1 else p2_acc_age
+            age = p1_a if p_idx == 1 else p2_a
+            if age >= acc:
                 base = (p1_sp + p1_db + p1_pa_draw*0.75 if ufpls else p1_pa_draw) if p_idx==1 else (p2_sp + p2_db + p2_pa_draw*0.75 if ufpls else p2_pa_draw)
                 gross = min((p1_s if p_idx==1 else p2_s), (BR - base) / (0.75 if ufpls else 1.0))
                 tax = calc_tax(base + (gross*0.75 if ufpls else gross)) - calc_tax(base)
                 if p_idx==1: p1_extra = gross; p1_s -= gross
                 else: p2_extra = gross; p2_s -= gross
                 net_fixed += (gross - tax)
-        
-        isa_flow = goal - net_fixed
-        joint_i -= isa_flow; isa_draw_val = max(0, isa_flow)
+        isa_draw_val = max(0, goal - net_fixed); joint_i -= isa_draw_val
     else:
         isa_draw_val = min(joint_i, gap); joint_i -= isa_draw_val; gap -= isa_draw_val
         if gap > 0 and p1_a >= p1_acc_age:
             p1_extra = min(p1_s, gap / 0.8); p1_s -= p1_extra
 
+    p1_inc = p1_sp + p1_db + (p1_pa_draw + p1_extra) * (0.75 if ufpls else 1.0)
+    p2_inc = p2_sp + p2_db + (p2_pa_draw + p2_extra) * (0.75 if ufpls else 1.0)
+
     data_log.append({
-        "Age": p1_a, "P1 SP": round(p1_sp), "P2 SP": round(p2_sp), "P1 DB": round(p1_db), "P2 DB": round(p2_db),
-        "P1 SIPP Draw": round(p1_pa_draw + p1_extra), "P2 SIPP Draw": round(p2_pa_draw + p2_extra),
-        "ISA Draw": round(isa_draw_val), "Tax": round(calc_tax(p1_sp + p1_db + (p1_pa_draw+p1_extra)*0.8) + calc_tax(p2_sp + p2_db + (p2_pa_draw+p2_extra)*0.8)), 
+        "Age": p1_a, "P1 SP": round(p1_sp), "P1 DB": round(p1_db), "P1 SIPP Draw": round(p1_pa_draw + p1_extra),
+        "P2 SP": round(p2_sp), "P2 DB": round(p2_db), "P2 SIPP Draw": round(p2_pa_draw + p2_extra),
+        "ISA Draw": round(isa_draw_val), "Tax": round(calc_tax(p1_inc) + calc_tax(p2_inc)), 
         "Total Wealth": round(p1_s + p2_s + joint_i)
     })
 
 df = pd.DataFrame(data_log)
 
 # --- 4. DISPLAY ---
-st.title(f"Retirement Forecast: {strat} (NMPA Compliant)")
-c1, c2, c3 = st.columns(3)
-c1.metric("Final Wealth", f"£{df['Total Wealth'].iloc[-1]:,}")
-c2.metric("Total Tax", f"£{df['Tax'].sum():,}")
-c3.metric("P1 SIPP Access Age", f"{p1_acc_age}")
-
+st.title(f"Retirement Forecast: {strat}")
 fig = go.Figure(data=[
-    go.Bar(x=df['Age'], y=df['P1 SP'], name="P1 State Pension", marker_color="#4A148C"),
-    go.Bar(x=df['Age'], y=df['P1 DB'], name="P1 DB Pension", marker_color="#7B1FA2"),
+    go.Bar(x=df['Age'], y=df['P1 SP'], name="P1 SP", marker_color="#4A148C"),
+    go.Bar(x=df['Age'], y=df['P1 DB'], name="P1 DB", marker_color="#7B1FA2"),
     go.Bar(x=df['Age'], y=df['P1 SIPP Draw'], name="P1 SIPP Draw", marker_color="#9C27B0"),
-    go.Bar(x=df['Age'], y=df['P2 SP'], name="P2 State Pension", marker_color="#1B5E20"),
-    go.Bar(x=df['Age'], y=df['P2 DB'], name="P2 DB Pension", marker_color="#388E3C"),
+    go.Bar(x=df['Age'], y=df['P2 SP'], name="P2 SP", marker_color="#1B5E20"),
+    go.Bar(x=df['Age'], y=df['P2 DB'], name="P2 DB", marker_color="#388E3C"),
     go.Bar(x=df['Age'], y=df['P2 SIPP Draw'], name="P2 SIPP Draw", marker_color="#4CAF50"),
     go.Bar(x=df['Age'], y=df['ISA Draw'], name="ISA Draw", marker_color="#1F77B4"),
     go.Scatter(x=df['Age'], y=df['Tax'], name="Total Tax", line=dict(color='red', width=2))
 ])
-fig.update_layout(barmode='stack', hovermode="x unified", title="Income Streams (Notice: SIPP gaps before Access Age)")
+fig.update_layout(barmode='stack', hovermode="x unified")
 st.plotly_chart(fig, use_container_width=True)
-
 st.dataframe(df, use_container_width=True)
-st.download_button("📥 Export CSV", df.to_csv(index=False), "plan.csv", "text/csv")
