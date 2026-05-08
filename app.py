@@ -101,13 +101,11 @@ for year in range(41):
     goal = target_spend * ((1+infl)**year)
     if p1_a >= p1_drop_age: goal *= (1 - p1_red)
 
-    # Individual Income Sources
     p1_sp = (p1_sp_amt * ((1+sp_growth)**year)) if p1_a >= 67 else 0
     p1_db = sum(v*((1+infl)**year) for k,v in p1_db_map.items() if p1_a >= k)
     p2_sp = (p2_sp_amt * ((1+sp_growth)**year)) if (mode=="Joint" and p2_a >= 67) else 0
     p2_db = sum(v*((1+infl)**year) for k,v in p2_db_map.items() if p2_a >= k)
 
-    # Fill PA for both partners
     p1_pa_draw = min(p1_s, max(0, PA - (p1_sp + p1_db)) / (0.75 if ufpls else 1.0)) if p1_a >= MIN_AGE else 0
     p1_s -= p1_pa_draw
     p2_pa_draw = min(p2_s, max(0, PA - (p2_sp + p2_db)) / (0.75 if ufpls else 1.0)) if (mode=="Joint" and p2_a >= MIN_AGE) else 0
@@ -154,25 +152,27 @@ st.title(f"Retirement Forecast: {strat}")
 c1, c2, c3 = st.columns(3)
 c1.metric("Final Wealth", f"£{df['Total Wealth'].iloc[-1]:,}")
 c2.metric("Total Tax", f"£{df['Tax'].sum():,}")
-c3.metric("Combined SP (Age 67)", f"£{df.loc[df['Age']==67, 'P1 State Pension'].iloc[0] + df.loc[df['Age']==67, 'P2 State Pension'].iloc[0]:,}" if 67 in df['Age'].values else "N/A")
+c3.metric("Household SP (Age 67)", f"£{df.loc[df['Age']==67, 'P1 State Pension'].iloc[0] + df.loc[df['Age']==67, 'P2 State Pension'].iloc[0]:,}" if 67 in df['Age'].values else "N/A")
 
-# Bar Chart with Individual Layers
+# Bar Chart with Themed Shades
+# P1: Purples, P2: Greens
 fig = go.Figure(data=[
-    go.Bar(x=df['Age'], y=df['P1 State Pension'], name="P1 State Pension", marker_color="#2ca02c"),
-    go.Bar(x=df['Age'], y=df['P2 State Pension'], name="P2 State Pension", marker_color="#1b5e20"),
-    go.Bar(x=df['Age'], y=df['P1 DB Pension'], name="P1 DB Pension", marker_color="#b2df8a"),
-    go.Bar(x=df['Age'], y=df['P2 DB Pension'], name="P2 DB Pension", marker_color="#33691e"),
-    go.Bar(x=df['Age'], y=df['P1 SIPP Draw'], name="P1 SIPP Draw", marker_color="#9467bd"),
-    go.Bar(x=df['Age'], y=df['P2 SIPP Draw'], name="P2 SIPP Draw", marker_color="#4a148c"),
-    go.Bar(x=df['Age'], y=df['ISA Draw'], name="ISA Draw", marker_color="#1f77b4"),
+    go.Bar(x=df['Age'], y=df['P1 State Pension'], name="P1 State Pension", marker_color="#4A148C"),
+    go.Bar(x=df['Age'], y=df['P1 DB Pension'], name="P1 DB Pension", marker_color="#7B1FA2"),
+    go.Bar(x=df['Age'], y=df['P1 SIPP Draw'], name="P1 SIPP Draw", marker_color="#9C27B0"),
+    
+    go.Bar(x=df['Age'], y=df['P2 State Pension'], name="P2 State Pension", marker_color="#1B5E20"),
+    go.Bar(x=df['Age'], y=df['P2 DB Pension'], name="P2 DB Pension", marker_color="#388E3C"),
+    go.Bar(x=df['Age'], y=df['P2 SIPP Draw'], name="P2 SIPP Draw", marker_color="#4CAF50"),
+    
+    go.Bar(x=df['Age'], y=df['ISA Draw'], name="ISA Draw", marker_color="#1F77B4"),
     go.Scatter(x=df['Age'], y=df['Tax'], name="Total Tax", line=dict(color='red', width=2))
 ])
-fig.update_layout(barmode='stack', hovermode="x unified", title="Detailed Income Source Breakdown")
+fig.update_layout(barmode='stack', hovermode="x unified", title="Income Streams: Partner 1 (Purple) vs Partner 2 (Green)")
 st.plotly_chart(fig, use_container_width=True)
 
 st.line_chart(df.set_index("Age")[["Total Wealth", "P1 SIPP", "P2 SIPP", "Joint ISA"]])
 
-# --- 5. SUMMARY & DOWNLOAD ---
 st.subheader("Year-by-Year Table")
 st.dataframe(df, use_container_width=True)
 st.download_button("📥 Download Data (CSV)", df.to_csv(index=False), "retirement_plan.csv", "text/csv")
