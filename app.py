@@ -21,6 +21,8 @@ if 'defaults' not in st.session_state:
 # --- 2. SIDEBAR ---
 with st.sidebar:
     st.header("💾 Profile Management")
+    
+    # Uploader
     uploaded_file = st.file_uploader("Upload '.json' profile", type="json")
     if uploaded_file is not None:
         try:
@@ -63,6 +65,22 @@ with st.sidebar:
         p1_drop_age = st.slider("Step-Down Age", 60, 95, int(st.session_state.defaults["p1_age_drop"]))
         p1_red = st.slider("Reduction %", 0, 50, int(st.session_state.defaults["p1_reduction"])) / 100
 
+    # Save Profile Button
+    current_params = {
+        "mode": mode, "p1_age": p1_age_start, "p2_age": p2_age_start,
+        "isa_bal": isa_joint, "p1_sipp": p1_sipp_init, "p2_sipp": p2_sipp_init,
+        "growth": growth*100, "inflation": infl*100, "p1_sp_amt": p1_sp_amt, "p2_sp_amt": p2_sp_amt,
+        "p1_db": p1_db_in, "p2_db": p2_db_in, "p1_lump_age": p1_l_age, "p2_lump_age": p2_l_age,
+        "spend": target_spend, "p1_age_drop": p1_drop_age, "p1_reduction": p1_red*100,
+        "strategy": strat, "use_ufpls": ufpls, "triple_lock": t_lock
+    }
+    st.download_button(
+        "💾 Save Profile (JSON)",
+        data=json.dumps(current_params, indent=4),
+        file_name="retirement_profile.json",
+        mime="application/json"
+    )
+
 # --- 3. CALCULATION ENGINE ---
 PA, BR, TAPER, LSA, MIN_AGE = 12570, 50270, 100000, 268275, 55
 
@@ -81,12 +99,9 @@ def calc_tax(income):
     if income <= BR: return (income - eff_pa) * 0.2
     return ((BR - eff_pa) * 0.2) + ((income - BR) * 0.4)
 
-p1_db_map = parse_kv(p1_db_in)
-p2_db_map = parse_kv(p2_db_in)
-data_log = []
-p1_s, p2_s, joint_i = p1_sipp_init, p2_sipp_init, isa_joint
-p1_lsa, p2_lsa = 0, 0
-sp_growth = infl + 0.005 if t_lock else infl
+p1_db_map, p2_db_map = parse_kv(p1_db_in), parse_kv(p2_db_in)
+data_log, p1_s, p2_s, joint_i = [], p1_sipp_init, p2_sipp_init, isa_joint
+p1_lsa, p2_lsa, sp_growth = 0, 0, infl + 0.005 if t_lock else infl
 
 for year in range(41):
     p1_a, p2_a = p1_age_start + year, p2_age_start + year
@@ -112,8 +127,7 @@ for year in range(41):
     p2_s -= p2_pa_draw
 
     net_fixed = (p1_sp + p1_db + p1_pa_draw) + (p2_sp + p2_db + p2_pa_draw)
-    gap = max(0, goal - net_fixed)
-    p1_extra, p2_extra = 0, 0
+    gap, p1_extra, p2_extra = max(0, goal - net_fixed), 0, 0
 
     if strat == "SIPP to Threshold":
         for p_idx in ([1, 2] if mode=="Joint" else [1]):
@@ -123,26 +137,18 @@ for year in range(41):
             if p_idx==1: p1_extra = gross; p1_s -= gross
             else: p2_extra = gross; p2_s -= gross
             net_fixed += (gross - tax)
-        
-        isa_flow = goal - net_fixed
-        joint_i -= isa_flow
-        isa_draw_val = max(0, isa_flow)
+        isa_flow = goal - net_fixed; joint_i -= isa_flow; isa_draw_val = max(0, isa_flow)
     else:
         isa_draw_val = min(joint_i, gap); joint_i -= isa_draw_val; gap -= isa_draw_val
-        if gap > 0:
-            p1_extra = min(p1_s, gap / 0.8); p1_s -= p1_extra
+        if gap > 0: p1_extra = min(p1_s, gap / 0.8); p1_s -= p1_extra
 
     p1_tax = calc_tax(p1_sp + p1_db + (p1_pa_draw + p1_extra) * (0.75 if ufpls else 1.0))
     p2_tax = calc_tax(p2_sp + p2_db + (p2_pa_draw + p2_extra) * (0.75 if ufpls else 1.0))
 
     data_log.append({
-        "Age": p1_a, 
-        "P1 State Pension": round(p1_sp), "P2 State Pension": round(p2_sp),
-        "P1 DB Pension": round(p1_db), "P2 DB Pension": round(p2_db),
+        "Age": p1_a, "P1 SP": round(p1_sp), "P2 SP": round(p2_sp), "P1 DB": round(p1_db), "P2 DB": round(p2_db),
         "P1 SIPP Draw": round(p1_pa_draw + p1_extra), "P2 SIPP Draw": round(p2_pa_draw + p2_extra),
-        "ISA Draw": round(isa_draw_val),
-        "Tax": round(p1_tax + p2_tax), "Total Wealth": round(p1_s + p2_s + joint_i),
-        "P1 SIPP": round(p1_s), "P2 SIPP": round(p2_s), "Joint ISA": round(joint_i)
+        "ISA Draw": round(isa_draw_val), "Tax": round(p1_tax + p2_tax), "Total Wealth": round(p1_s + p2_s + joint_i)
     })
 
 df = pd.DataFrame(data_log)
@@ -152,27 +158,22 @@ st.title(f"Retirement Forecast: {strat}")
 c1, c2, c3 = st.columns(3)
 c1.metric("Final Wealth", f"£{df['Total Wealth'].iloc[-1]:,}")
 c2.metric("Total Tax", f"£{df['Tax'].sum():,}")
-c3.metric("Household SP (Age 67)", f"£{df.loc[df['Age']==67, 'P1 State Pension'].iloc[0] + df.loc[df['Age']==67, 'P2 State Pension'].iloc[0]:,}" if 67 in df['Age'].values else "N/A")
+c3.metric("Household SP (67)", f"£{df.loc[df['Age']==67, 'P1 SP'].iloc[0] + df.loc[df['Age']==67, 'P2 SP'].iloc[0]:,}" if 67 in df['Age'].values else "N/A")
 
-# Bar Chart with Themed Shades
-# P1: Purples, P2: Greens
 fig = go.Figure(data=[
-    go.Bar(x=df['Age'], y=df['P1 State Pension'], name="P1 State Pension", marker_color="#4A148C"),
-    go.Bar(x=df['Age'], y=df['P1 DB Pension'], name="P1 DB Pension", marker_color="#7B1FA2"),
+    go.Bar(x=df['Age'], y=df['P1 SP'], name="P1 State Pension", marker_color="#4A148C"),
+    go.Bar(x=df['Age'], y=df['P1 DB'], name="P1 DB Pension", marker_color="#7B1FA2"),
     go.Bar(x=df['Age'], y=df['P1 SIPP Draw'], name="P1 SIPP Draw", marker_color="#9C27B0"),
-    
-    go.Bar(x=df['Age'], y=df['P2 State Pension'], name="P2 State Pension", marker_color="#1B5E20"),
-    go.Bar(x=df['Age'], y=df['P2 DB Pension'], name="P2 DB Pension", marker_color="#388E3C"),
+    go.Bar(x=df['Age'], y=df['P2 SP'], name="P2 State Pension", marker_color="#1B5E20"),
+    go.Bar(x=df['Age'], y=df['P2 DB'], name="P2 DB Pension", marker_color="#388E3C"),
     go.Bar(x=df['Age'], y=df['P2 SIPP Draw'], name="P2 SIPP Draw", marker_color="#4CAF50"),
-    
     go.Bar(x=df['Age'], y=df['ISA Draw'], name="ISA Draw", marker_color="#1F77B4"),
     go.Scatter(x=df['Age'], y=df['Tax'], name="Total Tax", line=dict(color='red', width=2))
 ])
 fig.update_layout(barmode='stack', hovermode="x unified", title="Income Streams: Partner 1 (Purple) vs Partner 2 (Green)")
 st.plotly_chart(fig, use_container_width=True)
 
-st.line_chart(df.set_index("Age")[["Total Wealth", "P1 SIPP", "P2 SIPP", "Joint ISA"]])
-
-st.subheader("Year-by-Year Table")
+st.subheader("Asset Depletion")
+st.line_chart(df.set_index("Age")["Total Wealth"])
 st.dataframe(df, use_container_width=True)
-st.download_button("📥 Download Data (CSV)", df.to_csv(index=False), "retirement_plan.csv", "text/csv")
+st.download_button("📥 Download Data (CSV)", df.to_csv(index=False), "plan.csv", "text/csv")
