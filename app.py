@@ -40,28 +40,30 @@ with st.sidebar:
     tabs = st.tabs(["Partner 1", "Partner 2", "Household"]) if mode == "Joint" else st.tabs(["User", "Household"])
     
     with tabs[0]:
-        p1_age_start = st.number_input("P1 Age", value=int(st.session_state.defaults.get("p1_age", 55)))
-        p1_sipp_init = st.number_input("P1 SIPP (£)", value=float(st.session_state.defaults.get("p1_sipp", 0)))
+        p1_age_start = st.number_input("P1 Current Age", value=int(st.session_state.defaults.get("p1_age", 55)))
+        p1_acc_age = st.number_input("P1 SIPP Access Age (NMPA)", 50, 75, int(st.session_state.defaults.get("p1_access_age", 57)))
+        p1_l_age = st.number_input("P1 Lump Sum Age", 50, 75, int(st.session_state.defaults.get("p1_lump_age", 57)))
+        st.divider()
+        p1_sipp_init = st.number_input("P1 SIPP Balance (£)", value=float(st.session_state.defaults.get("p1_sipp", 0)))
         p1_sp_amt = st.number_input("P1 State Pension (£)", value=float(st.session_state.defaults.get("p1_sp_amt", 12548)))
         p1_db_in = st.text_input("P1 DB (Age:Amt)", value=st.session_state.defaults.get("p1_db", ""))
-        p1_acc_age = st.number_input("P1 Access Age (NMPA)", 50, 75, int(st.session_state.defaults.get("p1_access_age", 57)))
-        p1_l_age = st.number_input("P1 Lump Age", 50, 75, int(st.session_state.defaults.get("p1_lump_age", 57)))
 
     if mode == "Joint":
         with tabs[1]:
-            p2_age_start = st.number_input("P2 Age", value=int(st.session_state.defaults.get("p2_age", 55)))
-            p2_sipp_init = st.number_input("P2 SIPP (£)", value=float(st.session_state.defaults.get("p2_sipp", 0)))
+            p2_age_start = st.number_input("P2 Current Age", value=int(st.session_state.defaults.get("p2_age", 55)))
+            p2_acc_age = st.number_input("P2 SIPP Access Age (NMPA)", 50, 75, int(st.session_state.defaults.get("p2_access_age", 57)))
+            p2_l_age = st.number_input("P2 Lump Sum Age", 50, 75, int(st.session_state.defaults.get("p2_lump_age", 57)))
+            st.divider()
+            p2_sipp_init = st.number_input("P2 SIPP Balance (£)", value=float(st.session_state.defaults.get("p2_sipp", 0)))
             p2_sp_amt = st.number_input("P2 State Pension (£)", value=float(st.session_state.defaults.get("p2_sp_amt", 12548)))
             p2_db_in = st.text_input("P2 DB (Age:Amt)", value=st.session_state.defaults.get("p2_db", ""))
-            p2_acc_age = st.number_input("P2 Access Age (NMPA)", 50, 75, int(st.session_state.defaults.get("p2_access_age", 57)))
-            p2_l_age = st.number_input("P2 Lump Age", 50, 75, int(st.session_state.defaults.get("p2_lump_age", 57)))
     else: p2_age_start, p2_sipp_init, p2_sp_amt, p2_db_in, p2_acc_age, p2_l_age = 0, 0, 0, "", 57, 57
 
     with tabs[-1]:
-        isa_joint = st.number_input("Joint ISA (£)", value=float(st.session_state.defaults.get("isa_bal", 0)))
+        isa_joint = st.number_input("Joint ISA/Savings (£)", value=float(st.session_state.defaults.get("isa_bal", 0)))
         growth = st.slider("Growth (%)", 0.0, 10.0, float(st.session_state.defaults.get("growth", 5.0))) / 100
         infl = st.slider("Inflation (%)", 0.0, 5.0, float(st.session_state.defaults.get("inflation", 2.5))) / 100
-        target_spend = st.number_input("Target Spend (£)", value=float(st.session_state.defaults.get("spend", 80000)))
+        target_spend = st.number_input("Target Annual Spend (£)", value=float(st.session_state.defaults.get("spend", 80000)))
         p1_drop_age = st.slider("Step-Down Age", 60, 95, int(st.session_state.defaults.get("p1_age_drop", 75)))
         p1_red = st.slider("Reduction %", 0, 50, int(st.session_state.defaults.get("p1_reduction", 20))) / 100
 
@@ -74,7 +76,7 @@ with st.sidebar:
         "spend": target_spend, "p1_age_drop": p1_drop_age, "p1_reduction": p1_red*100,
         "strategy": strat, "use_ufpls": ufpls, "triple_lock": t_lock
     }
-    st.download_button("💾 Save Profile (JSON)", data=json.dumps(current_params, indent=4), file_name="profile.json", mime="application/json")
+    st.download_button("💾 Save Profile (JSON)", data=json.dumps(current_params, indent=4), file_name="retirement_profile.json", mime="application/json")
 
 # --- 3. CALCULATION ENGINE ---
 PA, BR, TAPER, LSA = 12570, 50270, 100000, 268275
@@ -166,7 +168,7 @@ fig_inc = go.Figure(data=[
     go.Bar(x=df['Age'], y=df['ISA Draw'], name="ISA Draw", marker_color="#1F77B4"),
     go.Scatter(x=df['Age'], y=df['Tax'], name="Total Tax", line=dict(color='red', width=2))
 ])
-fig_inc.update_layout(barmode='stack', hovermode="x unified", title="Annual Income Sources")
+fig_inc.update_layout(barmode='stack', hovermode="x unified", title="Annual Income Sources Breakdown")
 st.plotly_chart(fig_inc, use_container_width=True)
 
 # Wealth Chart
