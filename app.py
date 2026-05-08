@@ -41,7 +41,7 @@ with st.sidebar:
     
     with tabs[0]:
         p1_age_start = st.number_input("P1 Age", value=int(st.session_state.defaults["p1_age"]))
-        p1_sipp = st.number_input("P1 SIPP (£)", value=float(st.session_state.defaults["p1_sipp"]))
+        p1_sipp_init = st.number_input("P1 SIPP (£)", value=float(st.session_state.defaults["p1_sipp"]))
         p1_sp_amt = st.number_input("P1 State Pension (£)", value=float(st.session_state.defaults["p1_sp_amt"]))
         p1_db_in = st.text_input("P1 DB (Age:Amt)", value=st.session_state.defaults["p1_db"])
         p1_l_age = st.number_input("P1 Lump Age", 55, 75, int(st.session_state.defaults["p1_lump_age"]))
@@ -49,11 +49,11 @@ with st.sidebar:
     if mode == "Joint":
         with tabs[1]:
             p2_age_start = st.number_input("P2 Age", value=int(st.session_state.defaults["p2_age"]))
-            p2_sipp = st.number_input("P2 SIPP (£)", value=float(st.session_state.defaults["p2_sipp"]))
+            p2_sipp_init = st.number_input("P2 SIPP (£)", value=float(st.session_state.defaults["p2_sipp"]))
             p2_sp_amt = st.number_input("P2 State Pension (£)", value=float(st.session_state.defaults["p2_sp_amt"]))
             p2_db_in = st.text_input("P2 DB (Age:Amt)", value=st.session_state.defaults["p2_db"])
             p2_l_age = st.number_input("P2 Lump Age", 55, 75, int(st.session_state.defaults["p2_lump_age"]))
-    else: p2_age_start, p2_sipp, p2_sp_amt, p2_db_in, p2_l_age = 0, 0, 0, "", 0
+    else: p2_age_start, p2_sipp_init, p2_sp_amt, p2_db_in, p2_l_age = 0, 0, 0, "", 0
 
     with tabs[-1]:
         isa_joint = st.number_input("Joint ISA (£)", value=float(st.session_state.defaults["isa_bal"]))
@@ -81,9 +81,10 @@ def calc_tax(income):
     if income <= BR: return (income - eff_pa) * 0.2
     return ((BR - eff_pa) * 0.2) + ((income - BR) * 0.4)
 
-p1_db_map, p2_db_map = parse_kv(p1_db_in), parse_kv(p2_db_in)
+p1_db_map = parse_kv(p1_db_in)
+p2_db_map = parse_kv(p2_db_in)
 data_log = []
-p1_s, p2_s, joint_i = p1_sipp, p2_sipp, isa_joint
+p1_s, p2_s, joint_i = p1_sipp_init, p2_sipp_init, isa_joint
 p1_lsa, p2_lsa = 0, 0
 sp_growth = infl + 0.005 if t_lock else infl
 
@@ -91,7 +92,6 @@ for year in range(41):
     p1_a, p2_a = p1_age_start + year, p2_age_start + year
     p1_s *= (1+growth); p2_s *= (1+growth); joint_i *= (1+growth)
     
-    # Lump Sums
     if not ufpls:
         if p1_a == p1_l_age:
             amt = min(p1_s*0.25, LSA-p1_lsa); p1_s -= amt; joint_i += amt; p1_lsa += amt
@@ -101,40 +101,50 @@ for year in range(41):
     goal = target_spend * ((1+infl)**year)
     if p1_a >= p1_drop_age: goal *= (1 - p1_red)
 
-    p1_guar = (p1_sp_amt * ((1+sp_growth)**year)) if p1_a >= 67 else 0
-    p1_guar += sum(v*((1+infl)**year) for k,v in p1_db_map.items() if p1_a >= k)
-    p2_guar = (p2_sp_amt * ((1+sp_growth)**year)) if (mode=="Joint" and p2_a >= 67) else 0
-    p2_guar += sum(v*((1+infl)**year) for k,v in p2_db_map.items() if p2_a >= k)
+    # Individual Income Sources
+    p1_sp = (p1_sp_amt * ((1+sp_growth)**year)) if p1_a >= 67 else 0
+    p1_db = sum(v*((1+infl)**year) for k,v in p1_db_map.items() if p1_a >= k)
+    p2_sp = (p2_sp_amt * ((1+sp_growth)**year)) if (mode=="Joint" and p2_a >= 67) else 0
+    p2_db = sum(v*((1+infl)**year) for k,v in p2_db_map.items() if p2_a >= k)
 
-    # Tax-free allowances
-    p1_pa_draw = min(p1_s, max(0, PA - p1_guar) / (0.75 if ufpls else 1.0)) if p1_a >= MIN_AGE else 0
+    # Fill PA for both partners
+    p1_pa_draw = min(p1_s, max(0, PA - (p1_sp + p1_db)) / (0.75 if ufpls else 1.0)) if p1_a >= MIN_AGE else 0
     p1_s -= p1_pa_draw
-    p2_pa_draw = min(p2_s, max(0, PA - p2_guar) / (0.75 if ufpls else 1.0)) if (mode=="Joint" and p2_a >= MIN_AGE) else 0
+    p2_pa_draw = min(p2_s, max(0, PA - (p2_sp + p2_db)) / (0.75 if ufpls else 1.0)) if (mode=="Joint" and p2_a >= MIN_AGE) else 0
     p2_s -= p2_pa_draw
 
-    net_fixed = p1_guar + p2_guar + p1_pa_draw + p2_pa_draw
+    net_fixed = (p1_sp + p1_db + p1_pa_draw) + (p2_sp + p2_db + p2_pa_draw)
     gap = max(0, goal - net_fixed)
     p1_extra, p2_extra = 0, 0
 
     if strat == "SIPP to Threshold":
         for p_idx in ([1, 2] if mode=="Joint" else [1]):
-            base = (p1_guar + p1_pa_draw*0.75 if ufpls else p1_pa_draw) if p_idx==1 else (p2_guar + p2_pa_draw*0.75 if ufpls else p2_pa_draw)
+            base = (p1_sp + p1_db + p1_pa_draw*0.75 if ufpls else p1_pa_draw) if p_idx==1 else (p2_sp + p2_db + p2_pa_draw*0.75 if ufpls else p2_pa_draw)
             gross = min((p1_s if p_idx==1 else p2_s), (BR - base) / (0.75 if ufpls else 1.0))
             tax = calc_tax(base + (gross*0.75 if ufpls else gross)) - calc_tax(base)
             if p_idx==1: p1_extra = gross; p1_s -= gross
             else: p2_extra = gross; p2_s -= gross
             net_fixed += (gross - tax)
-        joint_i -= (goal - net_fixed)
+        
+        isa_flow = goal - net_fixed
+        joint_i -= isa_flow
+        isa_draw_val = max(0, isa_flow)
     else:
-        i_draw = min(joint_i, gap); joint_i -= i_draw; gap -= i_draw
+        isa_draw_val = min(joint_i, gap); joint_i -= isa_draw_val; gap -= isa_draw_val
         if gap > 0:
             p1_extra = min(p1_s, gap / 0.8); p1_s -= p1_extra
 
+    p1_tax = calc_tax(p1_sp + p1_db + (p1_pa_draw + p1_extra) * (0.75 if ufpls else 1.0))
+    p2_tax = calc_tax(p2_sp + p2_db + (p2_pa_draw + p2_extra) * (0.75 if ufpls else 1.0))
+
     data_log.append({
-        "Age": p1_a, "P1 State Pension": round(p1_guar), "P2 State Pension": round(p2_guar),
-        "SIPP Draw": round(p1_pa_draw + p1_extra + p2_pa_draw + p2_extra),
-        "Tax": round(calc_tax(p1_guar + (p1_pa_draw + p1_extra)*(0.75 if ufpls else 1.0)) + calc_tax(p2_guar + (p2_pa_draw + p2_extra)*(0.75 if ufpls else 1.0))),
-        "Total Wealth": round(p1_s + p2_s + joint_i), "P1 SIPP": round(p1_s), "P2 SIPP": round(p2_s), "Joint ISA": round(joint_i)
+        "Age": p1_a, 
+        "P1 State Pension": round(p1_sp), "P2 State Pension": round(p2_sp),
+        "P1 DB Pension": round(p1_db), "P2 DB Pension": round(p2_db),
+        "P1 SIPP Draw": round(p1_pa_draw + p1_extra), "P2 SIPP Draw": round(p2_pa_draw + p2_extra),
+        "ISA Draw": round(isa_draw_val),
+        "Tax": round(p1_tax + p2_tax), "Total Wealth": round(p1_s + p2_s + joint_i),
+        "P1 SIPP": round(p1_s), "P2 SIPP": round(p2_s), "Joint ISA": round(joint_i)
     })
 
 df = pd.DataFrame(data_log)
@@ -144,26 +154,25 @@ st.title(f"Retirement Forecast: {strat}")
 c1, c2, c3 = st.columns(3)
 c1.metric("Final Wealth", f"£{df['Total Wealth'].iloc[-1]:,}")
 c2.metric("Total Tax", f"£{df['Tax'].sum():,}")
-c3.metric("State Pension (67)", f"£{df.loc[df['Age']==67, 'P1 State Pension'].iloc[0]:,}" if 67 in df['Age'].values else "N/A")
+c3.metric("Combined SP (Age 67)", f"£{df.loc[df['Age']==67, 'P1 State Pension'].iloc[0] + df.loc[df['Age']==67, 'P2 State Pension'].iloc[0]:,}" if 67 in df['Age'].values else "N/A")
 
-st.plotly_chart(go.Figure(data=[
-    go.Bar(x=df['Age'], y=df['P1 State Pension'], name="P1 Pension"),
-    go.Bar(x=df['Age'], y=df['P2 State Pension'], name="P2 Pension"),
-    go.Bar(x=df['Age'], y=df['SIPP Draw'], name="SIPP Draw"),
-    go.Scatter(x=df['Age'], y=df['Tax'], name="Tax", line=dict(color='red'))
-]).update_layout(barmode='relative'))
+# Bar Chart with Individual Layers
+fig = go.Figure(data=[
+    go.Bar(x=df['Age'], y=df['P1 State Pension'], name="P1 State Pension", marker_color="#2ca02c"),
+    go.Bar(x=df['Age'], y=df['P2 State Pension'], name="P2 State Pension", marker_color="#1b5e20"),
+    go.Bar(x=df['Age'], y=df['P1 DB Pension'], name="P1 DB Pension", marker_color="#b2df8a"),
+    go.Bar(x=df['Age'], y=df['P2 DB Pension'], name="P2 DB Pension", marker_color="#33691e"),
+    go.Bar(x=df['Age'], y=df['P1 SIPP Draw'], name="P1 SIPP Draw", marker_color="#9467bd"),
+    go.Bar(x=df['Age'], y=df['P2 SIPP Draw'], name="P2 SIPP Draw", marker_color="#4a148c"),
+    go.Bar(x=df['Age'], y=df['ISA Draw'], name="ISA Draw", marker_color="#1f77b4"),
+    go.Scatter(x=df['Age'], y=df['Tax'], name="Total Tax", line=dict(color='red', width=2))
+])
+fig.update_layout(barmode='stack', hovermode="x unified", title="Detailed Income Source Breakdown")
+st.plotly_chart(fig, use_container_width=True)
 
-st.subheader("Asset Depletion")
-st.line_chart(df.set_index("Age")[["Total Wealth", "P1 SIPP", "Joint ISA"] + (["P2 SIPP"] if mode=="Joint" else [])])
+st.line_chart(df.set_index("Age")[["Total Wealth", "P1 SIPP", "P2 SIPP", "Joint ISA"]])
 
-# --- 5. SUMMARY TABLE & DOWNLOAD ---
-st.subheader("Detailed Breakdown")
+# --- 5. SUMMARY & DOWNLOAD ---
+st.subheader("Year-by-Year Table")
 st.dataframe(df, use_container_width=True)
-
-csv = df.to_csv(index=False).encode('utf-8')
-st.download_button(
-    label="📥 Download Plan as CSV",
-    data=csv,
-    file_name='retirement_plan_export.csv',
-    mime='text/csv',
-)
+st.download_button("📥 Download Data (CSV)", df.to_csv(index=False), "retirement_plan.csv", "text/csv")
