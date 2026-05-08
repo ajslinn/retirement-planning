@@ -6,7 +6,6 @@ import json
 # --- 1. CONFIG & SESSION STATE ---
 st.set_page_config(page_title="Retirement Planner Pro", layout="wide")
 
-# Updated defaults with Access Age keys
 if 'defaults' not in st.session_state:
     st.session_state.defaults = {
         "mode": "Joint", "p1_age": 55, "p2_age": 55, "retire_year": 1,
@@ -45,7 +44,6 @@ with st.sidebar:
         p1_sipp_init = st.number_input("P1 SIPP (£)", value=float(st.session_state.defaults.get("p1_sipp", 0)))
         p1_sp_amt = st.number_input("P1 State Pension (£)", value=float(st.session_state.defaults.get("p1_sp_amt", 12548)))
         p1_db_in = st.text_input("P1 DB (Age:Amt)", value=st.session_state.defaults.get("p1_db", ""))
-        # Use .get() to prevent the KeyError if session state is stale
         p1_acc_age = st.number_input("P1 Access Age (NMPA)", 50, 75, int(st.session_state.defaults.get("p1_access_age", 57)))
         p1_l_age = st.number_input("P1 Lump Age", 50, 75, int(st.session_state.defaults.get("p1_lump_age", 57)))
 
@@ -67,7 +65,6 @@ with st.sidebar:
         p1_drop_age = st.slider("Step-Down Age", 60, 95, int(st.session_state.defaults.get("p1_age_drop", 75)))
         p1_red = st.slider("Reduction %", 0, 50, int(st.session_state.defaults.get("p1_reduction", 20))) / 100
 
-    # Save Profile
     current_params = {
         "mode": mode, "p1_age": p1_age_start, "p2_age": p2_age_start,
         "isa_bal": isa_joint, "p1_sipp": p1_sipp_init, "p2_sipp": p2_sipp_init,
@@ -129,8 +126,7 @@ for year in range(41):
 
     if strat == "SIPP to Threshold":
         for p_idx in ([1, 2] if mode=="Joint" else [1]):
-            acc = p1_acc_age if p_idx == 1 else p2_acc_age
-            age = p1_a if p_idx == 1 else p2_a
+            acc, age = (p1_acc_age, p1_a) if p_idx == 1 else (p2_acc_age, p2_a)
             if age >= acc:
                 base = (p1_sp + p1_db + p1_pa_draw*0.75 if ufpls else p1_pa_draw) if p_idx==1 else (p2_sp + p2_db + p2_pa_draw*0.75 if ufpls else p2_pa_draw)
                 gross = min((p1_s if p_idx==1 else p2_s), (BR - base) / (0.75 if ufpls else 1.0))
@@ -158,16 +154,26 @@ df = pd.DataFrame(data_log)
 
 # --- 4. DISPLAY ---
 st.title(f"Retirement Forecast: {strat}")
-fig = go.Figure(data=[
-    go.Bar(x=df['Age'], y=df['P1 SP'], name="P1 SP", marker_color="#4A148C"),
-    go.Bar(x=df['Age'], y=df['P1 DB'], name="P1 DB", marker_color="#7B1FA2"),
+
+# Income Chart
+fig_inc = go.Figure(data=[
+    go.Bar(x=df['Age'], y=df['P1 SP'], name="P1 State Pension", marker_color="#4A148C"),
+    go.Bar(x=df['Age'], y=df['P1 DB'], name="P1 DB Pension", marker_color="#7B1FA2"),
     go.Bar(x=df['Age'], y=df['P1 SIPP Draw'], name="P1 SIPP Draw", marker_color="#9C27B0"),
-    go.Bar(x=df['Age'], y=df['P2 SP'], name="P2 SP", marker_color="#1B5E20"),
-    go.Bar(x=df['Age'], y=df['P2 DB'], name="P2 DB", marker_color="#388E3C"),
+    go.Bar(x=df['Age'], y=df['P2 SP'], name="P2 State Pension", marker_color="#1B5E20"),
+    go.Bar(x=df['Age'], y=df['P2 DB'], name="P2 DB Pension", marker_color="#388E3C"),
     go.Bar(x=df['Age'], y=df['P2 SIPP Draw'], name="P2 SIPP Draw", marker_color="#4CAF50"),
     go.Bar(x=df['Age'], y=df['ISA Draw'], name="ISA Draw", marker_color="#1F77B4"),
     go.Scatter(x=df['Age'], y=df['Tax'], name="Total Tax", line=dict(color='red', width=2))
 ])
-fig.update_layout(barmode='stack', hovermode="x unified")
-st.plotly_chart(fig, use_container_width=True)
+fig_inc.update_layout(barmode='stack', hovermode="x unified", title="Annual Income Sources")
+st.plotly_chart(fig_inc, use_container_width=True)
+
+# Wealth Chart
+st.subheader("Asset Depletion (Total Wealth over Time)")
+st.line_chart(df.set_index("Age")["Total Wealth"])
+
+# Summary Table
+st.subheader("Yearly Breakdown")
 st.dataframe(df, use_container_width=True)
+st.download_button("📥 Download Results (CSV)", df.to_csv(index=False), "retirement_plan.csv", "text/csv")
