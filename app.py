@@ -6,7 +6,7 @@ import json
 # --- 1. CONFIG & SESSION STATE ---
 st.set_page_config(page_title="Retirement Planner Pro", layout="wide")
 
-# Updated defaults with your specific values
+# Updated defaults with your specific values as requested
 if 'defaults' not in st.session_state:
     st.session_state.defaults = {
         "mode": "Joint", "p1_age": 55, "p2_age": 55, "isa_bal": 12345.0,
@@ -20,12 +20,18 @@ if 'defaults' not in st.session_state:
 # --- 2. SIDEBAR ---
 with st.sidebar:
     st.header("💾 Profile Management")
+    
+    # Upload Profile
     uploaded_file = st.file_uploader("Upload Profile", type="json")
     if uploaded_file:
-        loaded_data = json.load(uploaded_file)
-        if "p1_age_drop" in loaded_data: loaded_data["step1_age"] = loaded_data.pop("p1_age_drop")
-        if "p1_reduction" in loaded_data: loaded_data["step1_red"] = loaded_data.pop("p1_reduction")
-        st.session_state.defaults.update(loaded_data)
+        try:
+            loaded_data = json.load(uploaded_file)
+            # Map legacy keys if present
+            if "p1_age_drop" in loaded_data: loaded_data["step1_age"] = loaded_data.pop("p1_age_drop")
+            if "p1_reduction" in loaded_data: loaded_data["step1_red"] = loaded_data.pop("p1_reduction")
+            st.session_state.defaults.update(loaded_data)
+        except Exception as e:
+            st.error(f"Error loading file: {e}")
 
     st.header("⚙️ Global Strategy")
     mode = st.radio("Mode", ["Single", "Joint"], index=0 if st.session_state.defaults["mode"] == "Single" else 1)
@@ -64,6 +70,23 @@ with st.sidebar:
         s1_red = st.slider("Step 1 Red %", 0, 50, int(st.session_state.defaults["step1_red"])) / 100
         s2_age = st.slider("Step 2 Age", 60, 95, int(st.session_state.defaults["step2_age"]))
         s2_red = st.slider("Step 2 Red %", 0, 50, int(st.session_state.defaults["step2_red"])) / 100
+
+    # Save Profile Button Logic
+    st.divider()
+    profile_to_save = {
+        "mode": mode, "p1_age": p1_age_start, "p2_age": p2_age_start, "isa_bal": isa_init,
+        "p1_sipp": p1_sipp_init, "p2_sipp": p2_sipp_init, "growth": growth*100, "inflation": infl*100,
+        "p1_sp_amt": p1_sp_amt, "p2_sp_amt": p2_sp_amt, "p1_db": p1_db_in, "p2_db": p2_db_in,
+        "p1_lump_age": p1_l_age, "p2_lump_age": p2_l_age, "p1_access_age": p1_acc_age, "p2_access_age": p2_acc_age,
+        "spend": target_spend, "step1_age": s1_age, "step1_red": s1_red*100, "step2_age": s2_age, "step2_red": s2_red*100,
+        "strategy": strat, "use_ufpls": ufpls, "triple_lock": t_lock
+    }
+    st.download_button(
+        label="💾 Save Profile",
+        data=json.dumps(profile_to_save, indent=4),
+        file_name="retirement_profile.json",
+        mime="application/json"
+    )
 
 # --- 3. CALC ENGINE ---
 PA, BR, TAPER, LSA_MAX = 12570, 50270, 100000, 268275
@@ -110,7 +133,7 @@ for year in range(41):
     p2_sp = (p2_sp_amt * ((1+sp_growth)**year)) if (mode=="Joint" and p2_a >= 67) else 0
     p2_db = sum(v*((1+infl)**year) for k,v in p2_db_map.items() if p2_a >= k)
     
-    # 4. SIPP Draw
+    # 4. SIPP Draw Strategy
     if strat == "SIPP to Threshold":
         p1_draw = max(0, min(p1_s, BR - (p1_sp + p1_db))) if p1_a >= p1_acc_age else 0
         p2_draw = max(0, min(p2_s, BR - (p2_sp + p2_db))) if (mode=="Joint" and p2_a >= p2_acc_age) else 0
@@ -122,7 +145,7 @@ for year in range(41):
     p1_tax = calc_tax(p1_sp + p1_db + (p1_draw * (0.75 if ufpls else 1)))
     p2_tax = calc_tax(p2_sp + p2_db + (p2_draw * (0.75 if ufpls else 1)))
     
-    # 5. Spend & ISA Draw
+    # 5. Spend Target Indexed with Tiered Reductions
     goal = target_spend * ((1+infl)**year)
     if p1_a >= s1_age: goal *= (1 - s1_red)
     if p1_a >= s2_age: goal *= (1 - s2_red)
