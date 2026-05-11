@@ -6,6 +6,7 @@ import json
 # --- 1. CONFIG & SESSION STATE ---
 st.set_page_config(page_title="Retirement Planner Pro", layout="wide")
 
+# Master state for all inputs
 if 'defaults' not in st.session_state:
     st.session_state.defaults = {
         "mode": "Joint", "p1_age": 55, "p2_age": 55, "retire_year": 1,
@@ -21,23 +22,35 @@ if 'defaults' not in st.session_state:
         "strategy": "ISA First", "use_ufpls": False, "triple_lock": True
     }
 
+# Track file identity to prevent infinite rerun loops
 if 'last_loaded_file_id' not in st.session_state:
     st.session_state.last_loaded_file_id = None
 
-# --- 2. SIDEBAR ---
+# --- 2. SIDEBAR & FILE MANAGEMENT ---
 with st.sidebar:
     st.header("💾 Profile Management")
     uploaded_file = st.file_uploader("Upload '.json' profile", type="json")
+    
     if uploaded_file is not None:
         file_id = f"{uploaded_file.name}_{uploaded_file.size}"
         if st.session_state.last_loaded_file_id != file_id:
             try:
                 loaded_data = json.load(uploaded_file)
+                
+                # Legacy Support: If loading an old file, map p1_age_drop to step1
+                if "p1_age_drop" in loaded_data:
+                    loaded_data["step1_age"] = loaded_data.pop("p1_age_drop")
+                if "p1_reduction" in loaded_data:
+                    loaded_data["step1_red"] = loaded_data.pop("p1_reduction")
+                
                 st.session_state.defaults.update(loaded_data)
                 st.session_state.last_loaded_file_id = file_id
                 st.rerun()
-            except Exception as e: st.error(f"Error: {e}")
-    if uploaded_file is None: st.session_state.last_loaded_file_id = None
+            except Exception as e: 
+                st.error(f"Error loading profile: {e}")
+    
+    if uploaded_file is None:
+        st.session_state.last_loaded_file_id = None
 
     st.header("⚙️ Global Strategy")
     mode = st.radio("Mode", ["Single", "Joint"], index=0 if st.session_state.defaults.get("mode") == "Single" else 1)
@@ -70,7 +83,7 @@ with st.sidebar:
         growth = st.slider("Growth (%)", 0.0, 10.0, float(st.session_state.defaults.get("growth", 5.0))) / 100
         infl = st.slider("Inflation (%)", 0.0, 5.0, float(st.session_state.defaults.get("inflation", 2.5))) / 100
         target_spend = st.number_input("Target Annual Spend (£)", value=float(st.session_state.defaults.get("spend", 80000)))
-        st.write("---")
+        st.divider()
         st.subheader("Spending Step-Downs")
         s1_age = st.slider("Step 1 Age", 60, 95, int(st.session_state.defaults.get("step1_age", 75)))
         s1_red = st.slider("Step 1 Reduction %", 0, 50, int(st.session_state.defaults.get("step1_red", 20))) / 100
@@ -120,7 +133,7 @@ for year in range(41):
         if mode == "Joint" and p2_a == p2_l_age and p2_a >= p2_acc_age:
             amt = min(p2_s*0.25, LSA-p2_lsa); p2_s -= amt; joint_i += amt; p2_lsa += amt
 
-    # Step-down spending logic
+    # Tiered Step-down logic
     goal = target_spend * ((1+infl)**year)
     if p1_a >= s1_age: goal *= (1 - s1_red)
     if p1_a >= s2_age: goal *= (1 - s2_red)
@@ -156,6 +169,7 @@ for year in range(41):
 
     p1_total_inc = p1_sp + p1_db + (p1_pa_draw + p1_extra) * (0.75 if ufpls else 1.0)
     p2_total_inc = p2_sp + p2_db + (p2_pa_draw + p2_extra) * (0.75 if ufpls else 1.0)
+    total_tax = calc_tax(p1_total_inc) + calc_tax(p2_total_inc)
 
     data_log.append({
         "P1 Age": p1_a, "P1 SP": round(p1_sp), "P1 DB": round(p1_db), "P1 SIPP Draw": round(p1_pa_draw + p1_extra), 
@@ -163,13 +177,15 @@ for year in range(41):
         "P2 Age": p2_a if mode=="Joint" else "-", "P2 SP": round(p2_sp) if mode=="Joint" else 0, 
         "P2 DB": round(p2_db) if mode=="Joint" else 0, "P2 SIPP Draw": round(p2_pa_draw + p2_extra) if mode=="Joint" else 0, 
         "P2 SIPP Balance": round(p2_s) if mode=="Joint" else 0, "P2 Tax": round(calc_tax(p2_total_inc)) if mode=="Joint" else 0,
-        "ISA Draw": round(isa_draw_val), "ISA Balance": round(joint_i), "Total Wealth": round(p1_s + p2_s + joint_i)
+        "ISA Draw": round(isa_draw_val), "ISA Balance": round(joint_i), "Total Wealth": round(p1_s + p2_s + joint_i),
+        "Total Tax": round(total_tax)
     })
 
 df = pd.DataFrame(data_log)
 
 # --- 4. DISPLAY ---
 st.title(f"Retirement Forecast: {strat}")
+
 fig_inc = go.Figure(data=[
     go.Bar(x=df['P1 Age'], y=df['P1 SP'], name="P1 SP", marker_color="#4A148C"),
     go.Bar(x=df['P1 Age'], y=df['P1 DB'], name="P1 DB", marker_color="#7B1FA2"),
@@ -177,9 +193,10 @@ fig_inc = go.Figure(data=[
     go.Bar(x=df['P1 Age'], y=df['P2 SP'], name="P2 SP", marker_color="#1B5E20"),
     go.Bar(x=df['P1 Age'], y=df['P2 DB'], name="P2 DB", marker_color="#388E3C"),
     go.Bar(x=df['P1 Age'], y=df['P2 SIPP Draw'], name="P2 Draw", marker_color="#4CAF50"),
-    go.Bar(x=df['P1 Age'], y=df['ISA Draw'], name="ISA Draw", marker_color="#1F77B4")
+    go.Bar(x=df['P1 Age'], y=df['ISA Draw'], name="ISA Draw", marker_color="#1F77B4"),
+    go.Scatter(x=df['P1 Age'], y=df['Total Tax'], name="Total Tax", line=dict(color='red', width=2))
 ])
-fig_inc.update_layout(barmode='stack', title="Income Over Time")
+fig_inc.update_layout(barmode='stack', title="Income Sources & Total Tax Over Time", hovermode="x unified")
 st.plotly_chart(fig_inc, use_container_width=True)
 
 st.subheader("Asset Depletion")
@@ -190,4 +207,6 @@ final_cols = ["P1 Age", "P1 SP", "P1 DB", "P1 SIPP Draw", "P1 SIPP Balance", "P1
               "P2 Age", "P2 SP", "P2 DB", "P2 SIPP Draw", "P2 SIPP Balance", "P2 Tax", 
               "ISA Draw", "ISA Balance", "Total Wealth"]
 if mode == "Single": final_cols = [c for c in final_cols if "P2" not in c]
-st.dataframe(df[final_cols], use_container_width=True)
+
+# Log-requested update: use width="stretch"
+st.dataframe(df[final_cols], width="stretch")
