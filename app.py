@@ -9,13 +9,13 @@ st.set_page_config(page_title="Retirement Planner Pro", layout="wide")
 if 'defaults' not in st.session_state:
     st.session_state.defaults = {
         "mode": "Joint", "p1_age": 55, "p2_age": 55, "retire_year": 1,
-        "isa_bal": 43000, "p1_sipp": 1750000, "p2_sipp": 18415,
+        "isa_bal": 100000, "p1_sipp": 100000, "p2_sipp": 100000,
         "growth": 5.0, "inflation": 2.5,
         "p1_sp_amt": 12548, "p2_sp_amt": 12548,
-        "p1_db": "", "p2_db": "60:2336, 65:5633, 67:6292", 
+        "p1_db": "", "p2_db": "65:1234", 
         "p1_lump_age": 57, "p2_lump_age": 57,
         "p1_access_age": 57, "p2_access_age": 57, 
-        "spend": 80000, "p1_age_drop": 75, "p1_reduction": 20, 
+        "spend": 60000, "p1_age_drop": 75, "p1_reduction": 20, 
         "strategy": "ISA First", "use_ufpls": False, "triple_lock": True
     }
 
