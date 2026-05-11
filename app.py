@@ -23,7 +23,7 @@ if 'last_loaded_file_id' not in st.session_state:
 
 # --- 2. SIDEBAR & PROFILE HANDLING ---
 with st.sidebar:
-    st.header("💾 Profile Management")
+    st.header("💾 Profile 2 Management")
     uploaded_file = st.file_uploader("Upload Profile", type="json")
     
     if uploaded_file is not None:
