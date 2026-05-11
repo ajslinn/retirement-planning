@@ -6,6 +6,7 @@ import json
 # --- 1. CONFIG & SESSION STATE ---
 st.set_page_config(page_title="Retirement Planner Pro", layout="wide")
 
+# Updated defaults with your specific values
 if 'defaults' not in st.session_state:
     st.session_state.defaults = {
         "mode": "Joint", "p1_age": 55, "p2_age": 55, "isa_bal": 12345.0,
@@ -22,7 +23,6 @@ with st.sidebar:
     uploaded_file = st.file_uploader("Upload Profile", type="json")
     if uploaded_file:
         loaded_data = json.load(uploaded_file)
-        # Map legacy keys
         if "p1_age_drop" in loaded_data: loaded_data["step1_age"] = loaded_data.pop("p1_age_drop")
         if "p1_reduction" in loaded_data: loaded_data["step1_red"] = loaded_data.pop("p1_reduction")
         st.session_state.defaults.update(loaded_data)
@@ -91,9 +91,11 @@ sp_growth = infl + 0.005 if t_lock else infl
 
 for year in range(41):
     p1_a, p2_a = p1_age_start + year, p2_age_start + year
+    
+    # 1. Growth
     p1_s *= (1+growth); p2_s *= (1+growth); joint_i *= (1+growth)
     
-    # Lump Sum Logic
+    # 2. Lump Sum (Standard logic)
     if not ufpls:
         if p1_a == p1_l_age and p1_a >= p1_acc_age:
             lump = min(p1_s * 0.25, LSA_MAX - p1_lsa_taken)
@@ -102,13 +104,13 @@ for year in range(41):
             lump = min(p2_s * 0.25, LSA_MAX - p2_lsa_taken)
             p2_s -= lump; joint_i += lump; p2_lsa_taken += lump
 
-    # Guaranteed Income
+    # 3. Guaranteed Income
     p1_sp = (p1_sp_amt * ((1+sp_growth)**year)) if p1_a >= 67 else 0
     p1_db = sum(v*((1+infl)**year) for k,v in p1_db_map.items() if p1_a >= k)
     p2_sp = (p2_sp_amt * ((1+sp_growth)**year)) if (mode=="Joint" and p2_a >= 67) else 0
     p2_db = sum(v*((1+infl)**year) for k,v in p2_db_map.items() if p2_a >= k)
     
-    # SIPP Draw Strategy
+    # 4. SIPP Draw
     if strat == "SIPP to Threshold":
         p1_draw = max(0, min(p1_s, BR - (p1_sp + p1_db))) if p1_a >= p1_acc_age else 0
         p2_draw = max(0, min(p2_s, BR - (p2_sp + p2_db))) if (mode=="Joint" and p2_a >= p2_acc_age) else 0
@@ -120,7 +122,7 @@ for year in range(41):
     p1_tax = calc_tax(p1_sp + p1_db + (p1_draw * (0.75 if ufpls else 1)))
     p2_tax = calc_tax(p2_sp + p2_db + (p2_draw * (0.75 if ufpls else 1)))
     
-    # Spending Target & ISA Draw
+    # 5. Spend & ISA Draw
     goal = target_spend * ((1+infl)**year)
     if p1_a >= s1_age: goal *= (1 - s1_red)
     if p1_a >= s2_age: goal *= (1 - s2_red)
@@ -137,43 +139,39 @@ for year in range(41):
 
 df = pd.DataFrame(data_log)
 
-# --- 4. CHART ---
-st.subheader(f"Retirement Forecast: {strat}")
-fig = go.Figure()
-
-# Plot in requested stacking order
-stack_order = [
-    ("P1 State Pension", "#4A148C"),
-    ("P2 State Pension", "#1B5E20"),
-    ("P1 DB", "#6A1B9A"),
-    ("P2 DB", "#2E7D32"),
-    ("P1 SIPP", "#9C27B0"),
-    ("P2 SIPP", "#4CAF50"),
-    ("ISA", "#1F77B4")
+# --- 4. CHARTS ---
+# A. Income Chart
+st.subheader(f"Annual Income Mix & Tax: {strat}")
+fig1 = go.Figure()
+income_stack = [
+    ("P1 State Pension", "#4A148C"), ("P2 State Pension", "#1B5E20"),
+    ("P1 DB", "#6A1B9A"), ("P2 DB", "#2E7D32"),
+    ("P1 SIPP", "#9C27B0"), ("P2 SIPP", "#4CAF50"), ("ISA", "#1F77B4")
 ]
-
-for label, color in stack_order:
+for label, color in income_stack:
     if label in df.columns:
-        fig.add_trace(go.Bar(x=df['P1 Age'], y=df[label], name=label, marker_color=color))
+        fig1.add_trace(go.Bar(x=df['P1 Age'], y=df[label], name=label, marker_color=color))
 
-# High visibility red Tax Line
-fig.add_trace(go.Scatter(
-    x=df['P1 Age'], y=df['Total Tax'], name="Total Tax Paid",
-    line=dict(color='#FF0000', width=4), mode='lines+markers'
-))
+fig1.add_trace(go.Scatter(x=df['P1 Age'], y=df['Total Tax'], name="Total Tax", line=dict(color='#FF0000', width=4), mode='lines+markers'))
+fig1.update_layout(barmode='stack', hovermode="x unified", legend=dict(orientation="h", y=1.1))
+st.plotly_chart(fig1, use_container_width=True)
 
-fig.update_layout(
-    barmode='stack', 
-    hovermode="x unified", 
-    yaxis_title="Annual Amount (£)",
-    xaxis_title="Partner 1 Age",
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-)
-st.plotly_chart(fig, use_container_width=True)
+# B. Asset Chart (Stacked Bar version)
+st.subheader("Asset Value Over Time (Stacked)")
+fig2 = go.Figure()
+asset_stack = [
+    ("P1 SIPP Bal", "#9C27B0"),
+    ("P2 SIPP Bal", "#4CAF50"),
+    ("ISA Bal", "#1F77B4")
+]
+for label, color in asset_stack:
+    fig2.add_trace(go.Bar(x=df['P1 Age'], y=df[label], name=label, marker_color=color))
+
+fig2.update_layout(barmode='stack', hovermode="x unified", yaxis_title="Portfolio Value (£)", legend=dict(orientation="h", y=1.1))
+st.plotly_chart(fig2, use_container_width=True)
 
 # --- 5. SUMMARY TABLE ---
 st.subheader("Yearly Breakdown")
-# Reorganized columns for the agreed summary format
 display_cols = [
     "P1 Age", "P1 State Pension", "P1 DB", "P1 SIPP", "P1 Tax", "P1 SIPP Bal",
     "P2 Age", "P2 State Pension", "P2 DB", "P2 SIPP", "P2 Tax", "P2 SIPP Bal",
