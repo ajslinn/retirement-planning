@@ -37,7 +37,7 @@ with st.sidebar:
             try:
                 loaded_data = json.load(uploaded_file)
                 
-                # Legacy Support: If loading an old file, map p1_age_drop to step1
+                # Legacy Support: Map old JSON fields to new 2-stage format
                 if "p1_age_drop" in loaded_data:
                     loaded_data["step1_age"] = loaded_data.pop("p1_age_drop")
                 if "p1_reduction" in loaded_data:
@@ -167,9 +167,10 @@ for year in range(41):
         if gap > 0 and p1_a >= p1_acc_age:
             p1_extra = min(p1_s, gap / 0.8); p1_s -= p1_extra
 
+    # TAX CALCULATION (Crucial for the chart line)
     p1_total_inc = p1_sp + p1_db + (p1_pa_draw + p1_extra) * (0.75 if ufpls else 1.0)
     p2_total_inc = p2_sp + p2_db + (p2_pa_draw + p2_extra) * (0.75 if ufpls else 1.0)
-    total_tax = calc_tax(p1_total_inc) + calc_tax(p2_total_inc)
+    total_tax_this_year = calc_tax(p1_total_inc) + calc_tax(p2_total_inc)
 
     data_log.append({
         "P1 Age": p1_a, "P1 SP": round(p1_sp), "P1 DB": round(p1_db), "P1 SIPP Draw": round(p1_pa_draw + p1_extra), 
@@ -178,7 +179,7 @@ for year in range(41):
         "P2 DB": round(p2_db) if mode=="Joint" else 0, "P2 SIPP Draw": round(p2_pa_draw + p2_extra) if mode=="Joint" else 0, 
         "P2 SIPP Balance": round(p2_s) if mode=="Joint" else 0, "P2 Tax": round(calc_tax(p2_total_inc)) if mode=="Joint" else 0,
         "ISA Draw": round(isa_draw_val), "ISA Balance": round(joint_i), "Total Wealth": round(p1_s + p2_s + joint_i),
-        "Total Tax": round(total_tax)
+        "Yearly Tax Total": round(total_tax_this_year)
     })
 
 df = pd.DataFrame(data_log)
@@ -186,16 +187,19 @@ df = pd.DataFrame(data_log)
 # --- 4. DISPLAY ---
 st.title(f"Retirement Forecast: {strat}")
 
-fig_inc = go.Figure(data=[
-    go.Bar(x=df['P1 Age'], y=df['P1 SP'], name="P1 SP", marker_color="#4A148C"),
-    go.Bar(x=df['P1 Age'], y=df['P1 DB'], name="P1 DB", marker_color="#7B1FA2"),
-    go.Bar(x=df['P1 Age'], y=df['P1 SIPP Draw'], name="P1 Draw", marker_color="#9C27B0"),
-    go.Bar(x=df['P1 Age'], y=df['P2 SP'], name="P2 SP", marker_color="#1B5E20"),
-    go.Bar(x=df['P1 Age'], y=df['P2 DB'], name="P2 DB", marker_color="#388E3C"),
-    go.Bar(x=df['P1 Age'], y=df['P2 SIPP Draw'], name="P2 Draw", marker_color="#4CAF50"),
-    go.Bar(x=df['P1 Age'], y=df['ISA Draw'], name="ISA Draw", marker_color="#1F77B4"),
-    go.Scatter(x=df['P1 Age'], y=df['Total Tax'], name="Total Tax", line=dict(color='red', width=2))
-])
+fig_inc = go.Figure()
+fig_inc.add_trace(go.Bar(x=df['P1 Age'], y=df['P1 SP'], name="P1 SP", marker_color="#4A148C"))
+fig_inc.add_trace(go.Bar(x=df['P1 Age'], y=df['P1 DB'], name="P1 DB", marker_color="#7B1FA2"))
+fig_inc.add_trace(go.Bar(x=df['P1 Age'], y=df['P1 SIPP Draw'], name="P1 Draw", marker_color="#9C27B0"))
+fig_inc.add_trace(go.Bar(x=df['P1 Age'], y=df['P2 SP'], name="P2 SP", marker_color="#1B5E20"))
+fig_inc.add_trace(go.Bar(x=df['P1 Age'], y=df['P2 DB'], name="P2 DB", marker_color="#388E3C"))
+fig_inc.add_trace(go.Bar(x=df['P1 Age'], y=df['P2 SIPP Draw'], name="P2 Draw", marker_color="#4CAF50"))
+fig_inc.add_trace(go.Bar(x=df['P1 Age'], y=df['ISA Draw'], name="ISA Draw", marker_color="#1F77B4"))
+
+# THE TAX LINE (Explicitly using the calculated Yearly Tax Total)
+fig_inc.add_trace(go.Scatter(x=df['P1 Age'], y=df['Yearly Tax Total'], name="Total Tax", 
+                             line=dict(color='red', width=3), mode='lines+markers'))
+
 fig_inc.update_layout(barmode='stack', title="Income Sources & Total Tax Over Time", hovermode="x unified")
 st.plotly_chart(fig_inc, use_container_width=True)
 
@@ -205,8 +209,7 @@ st.line_chart(df.set_index("P1 Age")["Total Wealth"])
 st.subheader("Yearly Breakdown")
 final_cols = ["P1 Age", "P1 SP", "P1 DB", "P1 SIPP Draw", "P1 SIPP Balance", "P1 Tax", 
               "P2 Age", "P2 SP", "P2 DB", "P2 SIPP Draw", "P2 SIPP Balance", "P2 Tax", 
-              "ISA Draw", "ISA Balance", "Total Wealth"]
+              "ISA Draw", "ISA Balance", "Total Wealth", "Yearly Tax Total"]
 if mode == "Single": final_cols = [c for c in final_cols if "P2" not in c]
 
-# Log-requested update: use width="stretch"
 st.dataframe(df[final_cols], width="stretch")
