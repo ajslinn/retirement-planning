@@ -6,7 +6,7 @@ import json
 # --- 1. CONFIG & SESSION STATE ---
 st.set_page_config(page_title="Retirement Planner Pro", layout="wide")
 
-# Standardize keys to ensure JSON compatibility
+# Master state for inputs
 if 'defaults' not in st.session_state:
     st.session_state.defaults = {
         "mode": "Joint", "p1_age": 55, "p2_age": 55, "retire_year": 1,
@@ -20,24 +20,37 @@ if 'defaults' not in st.session_state:
         "strategy": "ISA First", "use_ufpls": False, "triple_lock": True
     }
 
-# --- 2. SIDEBAR ---
+# Track loaded files to prevent infinite rerun loops
+if 'last_loaded_file_id' not in st.session_state:
+    st.session_state.last_loaded_file_id = None
+
+# --- 2. SIDEBAR & FILE MANAGEMENT ---
 with st.sidebar:
     st.header("💾 Profile Management")
     
-    # Use a key for the uploader to allow manual clearing if needed
-    uploaded_file = st.file_uploader("Upload '.json' profile", type="json", key="profile_uploader")
+    uploaded_file = st.file_uploader("Upload '.json' profile", type="json")
     
     if uploaded_file is not None:
-        try:
-            loaded_data = json.load(uploaded_file)
-            
-            # CHECK: Only rerun if the data is actually different from current state
-            # This prevents the "Infinite Loop" bug
-            if loaded_data != st.session_state.defaults:
-                st.session_state.defaults.update(loaded_data)
+        # Create a unique ID for the file based on name and size
+        current_file_id = f"{uploaded_file.name}_{uploaded_file.size}"
+        
+        # Only process if this is a NEW file upload
+        if st.session_state.last_loaded_file_id != current_file_id:
+            try:
+                loaded_data = json.load(uploaded_file)
+                # Update defaults with whatever is in the JSON
+                for key, value in loaded_data.items():
+                    st.session_state.defaults[key] = value
+                
+                # Mark as loaded and trigger a single refresh
+                st.session_state.last_loaded_file_id = current_file_id
                 st.rerun()
-        except Exception as e:
-            st.error(f"Error loading JSON: {e}")
+            except Exception as e:
+                st.error(f"Error loading JSON: {e}")
+
+    # Reset tracker if user removes the file
+    if uploaded_file is None:
+        st.session_state.last_loaded_file_id = None
 
     st.header("⚙️ Global Strategy")
     mode = st.radio("Mode", ["Single", "Joint"], index=0 if st.session_state.defaults.get("mode") == "Single" else 1)
@@ -76,7 +89,6 @@ with st.sidebar:
         p1_drop_age = st.slider("Step-Down Age", 60, 95, int(st.session_state.defaults.get("p1_age_drop", 75)))
         p1_red = st.slider("Reduction %", 0, 50, int(st.session_state.defaults.get("p1_reduction", 20))) / 100
 
-    # Ensure decimals are handled consistently in JSON
     current_params = {
         "mode": mode, "p1_age": p1_age_start, "p2_age": p2_age_start,
         "isa_bal": float(isa_joint_init), "p1_sipp": float(p1_sipp_init), "p2_sipp": float(p2_sipp_init),
@@ -173,6 +185,7 @@ df = pd.DataFrame(data_log)
 # --- 4. DISPLAY ---
 st.title(f"Retirement Forecast: {strat}")
 
+# Plotly Charts with updated width parameter to stop warnings
 fig_inc = go.Figure(data=[
     go.Bar(x=df['P1 Age'], y=df['P1 SP'], name="P1 State Pension", marker_color="#4A148C"),
     go.Bar(x=df['P1 Age'], y=df['P1 DB'], name="P1 DB Pension", marker_color="#7B1FA2"),
@@ -197,5 +210,6 @@ final_cols = ["P1 Age", "P1 SP", "P1 DB", "P1 SIPP Draw", "P1 SIPP Balance", "P1
 if mode == "Single":
     final_cols = [c for c in final_cols if "P2" not in c]
 
+# Update dataframe display to use full width
 st.dataframe(df[final_cols], use_container_width=True)
 st.download_button("📥 Export Results (CSV)", df[final_cols].to_csv(index=False), "retirement_plan.csv", "text/csv")
