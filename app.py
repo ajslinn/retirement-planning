@@ -5,7 +5,7 @@ from plotly.subplots import make_subplots
 import json
 
 # --- 1. CONFIG & SESSION STATE ---
-st.set_page_config(page_title="Retirement Planner Pro", layout="wide")
+st.set_page_config(page_title="Retirement Planner Pro - Dev", layout="wide")
 
 # Default values based on your uploaded profile
 if 'defaults' not in st.session_state:
