@@ -6,33 +6,38 @@ import json
 # --- 1. CONFIG & SESSION STATE ---
 st.set_page_config(page_title="Retirement Planner Pro", layout="wide")
 
-# Default settings with safety keys for older profile compatibility
+# Standardize keys to ensure JSON compatibility
 if 'defaults' not in st.session_state:
     st.session_state.defaults = {
         "mode": "Joint", "p1_age": 55, "p2_age": 55, "retire_year": 1,
-        "isa_bal": 43000, "p1_sipp": 1750000, "p2_sipp": 18415,
+        "isa_bal": 43000.0, "p1_sipp": 1750000.0, "p2_sipp": 18415.0,
         "growth": 5.0, "inflation": 2.5,
-        "p1_sp_amt": 12548, "p2_sp_amt": 12548,
+        "p1_sp_amt": 12548.0, "p2_sp_amt": 12548.0,
         "p1_db": "", "p2_db": "60:2336, 65:5633, 67:6292", 
         "p1_lump_age": 57, "p2_lump_age": 57,
         "p1_access_age": 57, "p2_access_age": 57, 
-        "spend": 80000, "p1_age_drop": 75, "p1_reduction": 20, 
+        "spend": 80000.0, "p1_age_drop": 75, "p1_reduction": 20.0, 
         "strategy": "ISA First", "use_ufpls": False, "triple_lock": True
     }
 
 # --- 2. SIDEBAR ---
 with st.sidebar:
     st.header("💾 Profile Management")
-    uploaded_file = st.file_uploader("Upload '.json' profile", type="json")
+    
+    # Use a key for the uploader to allow manual clearing if needed
+    uploaded_file = st.file_uploader("Upload '.json' profile", type="json", key="profile_uploader")
+    
     if uploaded_file is not None:
         try:
             loaded_data = json.load(uploaded_file)
-            # Safe update to prevent infinite loops on mismatching keys
-            for key, value in loaded_data.items():
-                st.session_state.defaults[key] = value
-            st.rerun()
-        except Exception as e: 
-            st.error(f"Error loading profile: {e}")
+            
+            # CHECK: Only rerun if the data is actually different from current state
+            # This prevents the "Infinite Loop" bug
+            if loaded_data != st.session_state.defaults:
+                st.session_state.defaults.update(loaded_data)
+                st.rerun()
+        except Exception as e:
+            st.error(f"Error loading JSON: {e}")
 
     st.header("⚙️ Global Strategy")
     mode = st.radio("Mode", ["Single", "Joint"], index=0 if st.session_state.defaults.get("mode") == "Single" else 1)
@@ -71,14 +76,14 @@ with st.sidebar:
         p1_drop_age = st.slider("Step-Down Age", 60, 95, int(st.session_state.defaults.get("p1_age_drop", 75)))
         p1_red = st.slider("Reduction %", 0, 50, int(st.session_state.defaults.get("p1_reduction", 20))) / 100
 
-    # Save logic for exporting
+    # Ensure decimals are handled consistently in JSON
     current_params = {
         "mode": mode, "p1_age": p1_age_start, "p2_age": p2_age_start,
-        "isa_bal": isa_joint_init, "p1_sipp": p1_sipp_init, "p2_sipp": p2_sipp_init,
-        "growth": growth*100, "inflation": infl*100, "p1_sp_amt": p1_sp_amt, "p2_sp_amt": p2_sp_amt,
+        "isa_bal": float(isa_joint_init), "p1_sipp": float(p1_sipp_init), "p2_sipp": float(p2_sipp_init),
+        "growth": growth*100, "inflation": infl*100, "p1_sp_amt": float(p1_sp_amt), "p2_sp_amt": float(p2_sp_amt),
         "p1_db": p1_db_in, "p2_db": p2_db_in, "p1_lump_age": p1_l_age, "p2_lump_age": p2_l_age,
         "p1_access_age": p1_acc_age, "p2_access_age": p2_acc_age,
-        "spend": target_spend, "p1_age_drop": p1_drop_age, "p1_reduction": p1_red*100,
+        "spend": float(target_spend), "p1_age_drop": p1_drop_age, "p1_reduction": float(p1_red*100),
         "strategy": strat, "use_ufpls": ufpls, "triple_lock": t_lock
     }
     st.download_button("💾 Save Profile (JSON)", data=json.dumps(current_params, indent=4), file_name="retirement_profile.json", mime="application/json")
@@ -135,7 +140,7 @@ for year in range(41):
         for p_idx in ([1, 2] if mode=="Joint" else [1]):
             acc, age = (p1_acc_age, p1_a) if p_idx == 1 else (p2_acc_age, p2_a)
             if age >= acc:
-                base = (p1_sp + p1_db + p1_pa_draw*0.75 if ufpls else p1_pa_draw) if p_idx==1 else (p2_sp + p2_db + p2_pa_draw*0.75 if ufpls else p2_pa_draw)
+                base = (p1_sp + p1_db + (p1_pa_draw*0.75 if ufpls else p1_pa_draw)) if p_idx==1 else (p2_sp + p2_db + (p2_pa_draw*0.75 if ufpls else p2_pa_draw))
                 gross = min((p1_s if p_idx==1 else p2_s), (BR - base) / (0.75 if ufpls else 1.0))
                 tax = calc_tax(base + (gross*0.75 if ufpls else gross)) - calc_tax(base)
                 if p_idx==1: p1_extra = gross; p1_s -= gross
@@ -168,7 +173,6 @@ df = pd.DataFrame(data_log)
 # --- 4. DISPLAY ---
 st.title(f"Retirement Forecast: {strat}")
 
-# Income Chart
 fig_inc = go.Figure(data=[
     go.Bar(x=df['P1 Age'], y=df['P1 SP'], name="P1 State Pension", marker_color="#4A148C"),
     go.Bar(x=df['P1 Age'], y=df['P1 DB'], name="P1 DB Pension", marker_color="#7B1FA2"),
@@ -182,11 +186,9 @@ fig_inc = go.Figure(data=[
 fig_inc.update_layout(barmode='stack', hovermode="x unified", title="Income Sources Over Time")
 st.plotly_chart(fig_inc, use_container_width=True)
 
-# Wealth Chart
 st.subheader("Asset Depletion (Total Wealth)")
 st.line_chart(df.set_index("P1 Age")["Total Wealth"])
 
-# Final Structured Table
 st.subheader("Yearly Breakdown")
 final_cols = ["P1 Age", "P1 SP", "P1 DB", "P1 SIPP Draw", "P1 SIPP Balance", "P1 Tax", 
               "P2 Age", "P2 SP", "P2 DB", "P2 SIPP Draw", "P2 SIPP Balance", "P2 Tax", 
