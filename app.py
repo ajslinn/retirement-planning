@@ -6,16 +6,17 @@ import json
 # --- 1. CONFIG & SESSION STATE ---
 st.set_page_config(page_title="Retirement Planner Pro", layout="wide")
 
+# Default settings with safety keys for older profile compatibility
 if 'defaults' not in st.session_state:
     st.session_state.defaults = {
         "mode": "Joint", "p1_age": 55, "p2_age": 55, "retire_year": 1,
-        "isa_bal": 100000, "p1_sipp": 100000, "p2_sipp": 100000,
+        "isa_bal": 43000, "p1_sipp": 1750000, "p2_sipp": 18415,
         "growth": 5.0, "inflation": 2.5,
         "p1_sp_amt": 12548, "p2_sp_amt": 12548,
-        "p1_db": "", "p2_db": "65:1234", 
+        "p1_db": "", "p2_db": "60:2336, 65:5633, 67:6292", 
         "p1_lump_age": 57, "p2_lump_age": 57,
         "p1_access_age": 57, "p2_access_age": 57, 
-        "spend": 60000, "p1_age_drop": 75, "p1_reduction": 20, 
+        "spend": 80000, "p1_age_drop": 75, "p1_reduction": 20, 
         "strategy": "ISA First", "use_ufpls": False, "triple_lock": True
     }
 
@@ -26,9 +27,12 @@ with st.sidebar:
     if uploaded_file is not None:
         try:
             loaded_data = json.load(uploaded_file)
-            st.session_state.defaults.update(loaded_data)
+            # Safe update to prevent infinite loops on mismatching keys
+            for key, value in loaded_data.items():
+                st.session_state.defaults[key] = value
             st.rerun()
-        except Exception: st.error("Invalid JSON.")
+        except Exception as e: 
+            st.error(f"Error loading profile: {e}")
 
     st.header("⚙️ Global Strategy")
     mode = st.radio("Mode", ["Single", "Joint"], index=0 if st.session_state.defaults.get("mode") == "Single" else 1)
@@ -67,6 +71,7 @@ with st.sidebar:
         p1_drop_age = st.slider("Step-Down Age", 60, 95, int(st.session_state.defaults.get("p1_age_drop", 75)))
         p1_red = st.slider("Reduction %", 0, 50, int(st.session_state.defaults.get("p1_reduction", 20))) / 100
 
+    # Save logic for exporting
     current_params = {
         "mode": mode, "p1_age": p1_age_start, "p2_age": p2_age_start,
         "isa_bal": isa_joint_init, "p1_sipp": p1_sipp_init, "p2_sipp": p2_sipp_init,
@@ -102,11 +107,8 @@ p1_lsa, p2_lsa, sp_growth = 0, 0, infl + 0.005 if t_lock else infl
 
 for year in range(41):
     p1_a, p2_a = p1_age_start + year, p2_age_start + year
-    
-    # Apply Growth
     p1_s *= (1+growth); p2_s *= (1+growth); joint_i *= (1+growth)
     
-    # 25% Tax-Free Lump Sum
     if not ufpls:
         if p1_a == p1_l_age and p1_a >= p1_acc_age:
             amt = min(p1_s*0.25, LSA-p1_lsa); p1_s -= amt; joint_i += amt; p1_lsa += amt
@@ -121,7 +123,6 @@ for year in range(41):
     p2_sp = (p2_sp_amt * ((1+sp_growth)**year)) if (mode=="Joint" and p2_a >= 67) else 0
     p2_db = sum(v*((1+infl)**year) for k,v in p2_db_map.items() if p2_a >= k)
 
-    # Base PA Drawdown
     p1_pa_draw = min(p1_s, max(0, PA - (p1_sp + p1_db)) / (0.75 if ufpls else 1.0)) if p1_a >= p1_acc_age else 0
     p1_s -= p1_pa_draw
     p2_pa_draw = min(p2_s, max(0, PA - (p2_sp + p2_db)) / (0.75 if ufpls else 1.0)) if (mode=="Joint" and p2_a >= p2_acc_age) else 0
@@ -146,27 +147,19 @@ for year in range(41):
         if gap > 0 and p1_a >= p1_acc_age:
             p1_extra = min(p1_s, gap / 0.8); p1_s -= p1_extra
 
-    # Individual Tax Calcs
     p1_total_inc = p1_sp + p1_db + (p1_pa_draw + p1_extra) * (0.75 if ufpls else 1.0)
     p2_total_inc = p2_sp + p2_db + (p2_pa_draw + p2_extra) * (0.75 if ufpls else 1.0)
-    p1_tax_val = calc_tax(p1_total_inc)
-    p2_tax_val = calc_tax(p2_total_inc)
 
     data_log.append({
-        "P1 Age": p1_a, 
-        "P1 SP": round(p1_sp), 
-        "P1 DB": round(p1_db), 
-        "P1 SIPP Draw": round(p1_pa_draw + p1_extra), 
-        "P1 SIPP Balance": round(p1_s), 
-        "P1 Tax": round(p1_tax_val),
+        "P1 Age": p1_a, "P1 SP": round(p1_sp), "P1 DB": round(p1_db), "P1 SIPP Draw": round(p1_pa_draw + p1_extra), 
+        "P1 SIPP Balance": round(p1_s), "P1 Tax": round(calc_tax(p1_total_inc)),
         "P2 Age": p2_a if mode=="Joint" else "-", 
         "P2 SP": round(p2_sp) if mode=="Joint" else 0, 
         "P2 DB": round(p2_db) if mode=="Joint" else 0, 
         "P2 SIPP Draw": round(p2_pa_draw + p2_extra) if mode=="Joint" else 0, 
         "P2 SIPP Balance": round(p2_s) if mode=="Joint" else 0, 
-        "P2 Tax": round(p2_tax_val) if mode=="Joint" else 0,
-        "ISA Draw": round(isa_draw_val),
-        "ISA Balance": round(joint_i),
+        "P2 Tax": round(calc_tax(p2_total_inc)) if mode=="Joint" else 0,
+        "ISA Draw": round(isa_draw_val), "ISA Balance": round(joint_i),
         "Total Wealth": round(p1_s + p2_s + joint_i)
     })
 
@@ -175,7 +168,7 @@ df = pd.DataFrame(data_log)
 # --- 4. DISPLAY ---
 st.title(f"Retirement Forecast: {strat}")
 
-# Income Breakdown Chart
+# Income Chart
 fig_inc = go.Figure(data=[
     go.Bar(x=df['P1 Age'], y=df['P1 SP'], name="P1 State Pension", marker_color="#4A148C"),
     go.Bar(x=df['P1 Age'], y=df['P1 DB'], name="P1 DB Pension", marker_color="#7B1FA2"),
@@ -186,11 +179,11 @@ fig_inc = go.Figure(data=[
     go.Bar(x=df['P1 Age'], y=df['ISA Draw'], name="ISA Draw", marker_color="#1F77B4"),
     go.Scatter(x=df['P1 Age'], y=df['P1 Tax'] + df['P2 Tax'], name="Total Tax", line=dict(color='red', width=2))
 ])
-fig_inc.update_layout(barmode='stack', hovermode="x unified", title="Annual Income Breakdown")
+fig_inc.update_layout(barmode='stack', hovermode="x unified", title="Income Sources Over Time")
 st.plotly_chart(fig_inc, use_container_width=True)
 
 # Wealth Chart
-st.subheader("Asset Depletion")
+st.subheader("Asset Depletion (Total Wealth)")
 st.line_chart(df.set_index("P1 Age")["Total Wealth"])
 
 # Final Structured Table
@@ -199,9 +192,8 @@ final_cols = ["P1 Age", "P1 SP", "P1 DB", "P1 SIPP Draw", "P1 SIPP Balance", "P1
               "P2 Age", "P2 SP", "P2 DB", "P2 SIPP Draw", "P2 SIPP Balance", "P2 Tax", 
               "ISA Draw", "ISA Balance", "Total Wealth"]
 
-# If single mode, filter out P2 columns to keep it clean
 if mode == "Single":
     final_cols = [c for c in final_cols if "P2" not in c]
 
 st.dataframe(df[final_cols], use_container_width=True)
-st.download_button("📥 Export CSV", df[final_cols].to_csv(index=False), "retirement_forecast.csv", "text/csv")
+st.download_button("📥 Export Results (CSV)", df[final_cols].to_csv(index=False), "retirement_plan.csv", "text/csv")
