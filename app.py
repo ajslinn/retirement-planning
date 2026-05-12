@@ -24,6 +24,7 @@ with st.sidebar:
     if uploaded_file:
         try:
             loaded_data = json.load(uploaded_file)
+            # Legacy mapping for older profiles with a single shared ISA field
             if "isa_bal" in loaded_data and "p1_isa_bal" not in loaded_data:
                 loaded_data["p1_isa_bal"] = loaded_data["isa_bal"] / 2
                 loaded_data["p2_isa_bal"] = loaded_data["isa_bal"] / 2
@@ -70,6 +71,24 @@ with st.sidebar:
         s2_age = st.slider("Step 2 Age", 60, 95, int(st.session_state.defaults["step2_age"]))
         s2_red = st.slider("Step 2 Red %", 0, 50, int(st.session_state.defaults["step2_red"])) / 100
 
+    # RESTORED: Save Profile Button functionality
+    st.divider()
+    profile_to_save = {
+        "mode": mode, "p1_age": p1_age_start, "p2_age": p2_age_start, 
+        "p1_isa_bal": p1_isa_init, "p2_isa_bal": p2_isa_init,
+        "p1_sipp": p1_sipp_init, "p2_sipp": p2_sipp_init, "growth": growth*100, "inflation": infl*100,
+        "p1_sp_amt": p1_sp_amt, "p2_sp_amt": p2_sp_amt, "p1_db": p1_db_in, "p2_db": p2_db_in,
+        "p1_lump_age": p1_l_age, "p2_lump_age": p2_l_age, "p1_access_age": p1_acc_age, "p2_access_age": p2_acc_age,
+        "spend": target_spend, "step1_age": s1_age, "step1_red": s1_red*100, "step2_age": s2_age, "step2_red": s2_red*100,
+        "strategy": strat, "use_ufpls": ufpls, "triple_lock": t_lock
+    }
+    st.download_button(
+        label="💾 Save Profile", 
+        data=json.dumps(profile_to_save, indent=4), 
+        file_name="retirement_profile.json", 
+        mime="application/json"
+    )
+
 # --- 3. CALC ENGINE ---
 PA, BR, TAPER, LSA_MAX = 12570, 50270, 100000, 268275
 
@@ -89,22 +108,25 @@ def calc_tax(income):
     return ((BR - eff_pa) * 0.2) + ((income - BR) * 0.4)
 
 def solve_gross_for_net(net_needed, existing_taxable, available_pot, use_ufpls):
-    """Calculates the gross SIPP withdrawal needed to reach a net cash target."""
-    if net_needed <= 0 or available_pot <= 0: return 0
+    """Calculates the exact gross SIPP withdrawal needed to reach a net cash target."""
+    if net_needed <= 0.01 or available_pot <= 0: return 0
     
     tax_multiplier = 0.75 if use_ufpls else 1.0
     low, high = 0.0, float(available_pot)
     
-    # Quick check: if emptying the pot doesn't meet the need
-    total_tax_at_max = calc_tax(existing_taxable + available_pot * tax_multiplier)
+    # Check if emptying the available pot covers the target net
     base_tax = calc_tax(existing_taxable)
-    if (available_pot - (total_tax_at_max - base_tax)) <= net_needed:
+    max_tax = calc_tax(existing_taxable + available_pot * tax_multiplier)
+    max_net_yield = available_pot - (max_tax - base_tax)
+    
+    if max_net_yield <= net_needed:
         return available_pot
 
-    for _ in range(25): # Binary search for precision
-        mid = (low + high) / 2
-        tax_at_mid = calc_tax(existing_taxable + mid * tax_multiplier)
-        net_yield = mid - (tax_at_mid - base_tax)
+    # Precise solver to ensure no over-drawing
+    for _ in range(30):
+        mid = (low + high) / 2.0
+        test_tax = calc_tax(existing_taxable + mid * tax_multiplier)
+        net_yield = mid - (test_tax - base_tax)
         if net_yield < net_needed: low = mid
         else: high = mid
     return high
@@ -118,11 +140,13 @@ sp_growth = infl + 0.005 if t_lock else infl
 
 for year in range(41):
     p1_a, p2_a = p1_age_start + year, p2_age_start + year
+    
+    # Spending Goal calculation with standard indexing and target tiering
     goal = target_spend * ((1+infl)**year)
     if p1_a >= s1_age: goal *= (1 - s1_red)
     if p1_a >= s2_age: goal *= (1 - s2_red)
     
-    # Move SIPP to TFLS Pot on Lump Sum Age
+    # Move internal tax-free entitlements from SIPP to TFLS Pot on designated age
     if not ufpls:
         if p1_a == p1_l_age and p1_a >= 55:
             ent = min(p1_s * 0.25, LSA_MAX - p1_lsa_taken)
@@ -131,7 +155,7 @@ for year in range(41):
             ent = min(p2_s * 0.25, LSA_MAX - p2_lsa_taken)
             p2_s -= ent; p2_tfls_pot += ent; p2_lsa_taken += ent
 
-    # Fixed Incomes
+    # Calculate Fixed Incomes
     p1_sp = (p1_sp_amt * ((1+sp_growth)**year)) if p1_a >= 67 else 0
     p1_db = sum(v*((1+infl)**year) for k,v in p1_db_map.items() if p1_a >= k)
     p2_sp = (p2_sp_amt * ((1+sp_growth)**year)) if (mode=="Joint" and p2_a >= 67) else 0
@@ -145,46 +169,49 @@ for year in range(41):
     
     p1_sipp_draw, p2_sipp_draw, p1_tfls_draw, p2_tfls_draw, p1_isa_draw, p2_isa_draw = 0,0,0,0,0,0
 
-    # WATERFALL START
-    # 1. Tax Efficient SIPP (Only if SIPP to Threshold is selected OR if we have shortfall)
-    if (p1_a >= p1_acc_age or (mode=="Joint" and p2_a >= p2_acc_age)):
-        limit = BR if strat == "SIPP to Threshold" else PA
+    # WATERFALL DRAWDOWN SEQUENCE
+    
+    # Step A: Base Tax Efficient SIPP Draw
+    if shortfall > 0 and (p1_a >= p1_acc_age or (mode=="Joint" and p2_a >= p2_acc_age)):
+        threshold = BR if strat == "SIPP to Threshold" else PA
         
-        # P1 efficient draw
+        # Partner 1
         if p1_a >= p1_acc_age and p1_s > 0:
-            max_eff = max(0, limit - (p1_sp + p1_db))
-            # If "SIPP to Threshold", take the max_eff. If "ISA First", only take what covers shortfall.
-            needed = shortfall if strat == "ISA First" else max_eff
-            draw = solve_gross_for_net(min(needed, max_eff), p1_sp + p1_db, p1_s, ufpls)
-            p1_sipp_draw += draw; p1_s -= draw
+            eff_space = max(0, threshold - (p1_sp + p1_db))
+            target_net = shortfall / 2 if mode == "Joint" else shortfall
+            # Ceil the draw cleanly: never draw more net than shortfall requires
+            draw_amt = solve_gross_for_net(target_net, p1_sp + p1_db, min(p1_s, eff_space), ufpls)
+            p1_sipp_draw += draw_amt; p1_s -= draw_amt
             
-        # P2 efficient draw
-        current_net_calc = (p1_sp+p1_db+p1_sipp_draw-calc_tax(p1_sp+p1_db+p1_sipp_draw*(0.75 if ufpls else 1))) + (p2_sp+p2_db-p2_tax_fixed)
-        shortfall = max(0, goal - current_net_calc)
+        # Re-evaluate current shortfall dynamically
+        p1_cur_tax = calc_tax(p1_sp + p1_db + p1_sipp_draw * (0.75 if ufpls else 1))
+        p1_cur_net = p1_sp + p1_db + p1_sipp_draw - p1_cur_tax
+        shortfall = max(0, goal - (p1_cur_net + (p2_sp + p2_db - p2_tax_fixed)))
         
-        if mode == "Joint" and p2_a >= p2_acc_age and p2_s > 0:
-            max_eff = max(0, limit - (p2_sp + p2_db))
-            needed = shortfall if strat == "ISA First" else max_eff
-            draw = solve_gross_for_net(min(needed, max_eff), p2_sp + p2_db, p2_s, ufpls)
-            p2_sipp_draw += draw; p2_s -= draw
+        # Partner 2
+        if mode == "Joint" and p2_a >= p2_acc_age and p2_s > 0 and shortfall > 0:
+            eff_space = max(0, threshold - (p2_sp + p2_db))
+            draw_amt = solve_gross_for_net(shortfall, p2_sp + p2_db, min(p2_s, eff_space), ufpls)
+            p2_sipp_draw += draw_amt; p2_s -= draw_amt
 
-    # Recalculate Shortfall
-    p1_net = (p1_sp+p1_db+p1_sipp_draw) - calc_tax(p1_sp+p1_db+p1_sipp_draw*(0.75 if ufpls else 1))
-    p2_net = (p2_sp+p2_db+p2_sipp_draw) - calc_tax(p2_sp+p2_db+p2_sipp_draw*(0.75 if ufpls else 1))
-    shortfall = max(0, goal - (p1_net + p2_net))
+    # Ensure Shortfall is recomputed precisely before accessing tax-free layers
+    p1_cur_tax = calc_tax(p1_sp + p1_db + p1_sipp_draw * (0.75 if ufpls else 1))
+    p2_cur_tax = calc_tax(p2_sp + p2_db + p2_sipp_draw * (0.75 if ufpls else 1))
+    current_net = (p1_sp + p1_db + p1_sipp_draw - p1_cur_tax) + (p2_sp + p2_db + p2_sipp_draw - p2_cur_tax)
+    shortfall = max(0, goal - current_net)
 
-    # 2. TFLS Draw
+    # Step B: Tax-Free Lump Sum (TFLS) Layer
     if shortfall > 0:
         d1 = min(p1_tfls_pot, shortfall / 2 if mode == "Joint" else shortfall)
         p1_tfls_draw += d1; p1_tfls_pot -= d1; shortfall -= d1
         if mode == "Joint":
             d2 = min(p2_tfls_pot, shortfall)
             p2_tfls_draw += d2; p2_tfls_pot -= d2; shortfall -= d2
-            # Cleanup if P2 had more but P1 didn't have enough for their half
+            # Partner cross-cover logic if one runs out
             d1_extra = min(p1_tfls_pot, shortfall)
             p1_tfls_draw += d1_extra; p1_tfls_pot -= d1_extra; shortfall -= d1_extra
 
-    # 3. ISA Draw
+    # Step C: Individual ISA Layer
     if shortfall > 0:
         d1 = min(p1_i, shortfall / 2 if mode == "Joint" else shortfall)
         p1_isa_draw += d1; p1_i -= d1; shortfall -= d1
@@ -194,28 +221,35 @@ for year in range(41):
             d1_extra = min(p1_i, shortfall)
             p1_isa_draw += d1_extra; p1_i -= d1_extra; shortfall -= d1_extra
 
-    # 4. Final SIPP Draw (Emergency cover for remaining shortfall, potentially at higher tax)
+    # Step D: Deep SIPP Extra Draw (Return to taxable pensions if standard layers are depleted)
     if shortfall > 0:
         if p1_a >= p1_acc_age and p1_s > 0:
-            existing = p1_sp + p1_db + p1_sipp_draw * (0.75 if ufpls else 1)
-            draw = solve_gross_for_net(shortfall / 2 if mode == "Joint" else shortfall, existing, p1_s, ufpls)
-            p1_sipp_draw += draw; p1_s -= draw
-            # Update shortfall
-            p1_net_new = (p1_sp+p1_db+p1_sipp_draw) - calc_tax(p1_sp+p1_db+p1_sipp_draw*(0.75 if ufpls else 1))
-            shortfall = max(0, goal - (p1_net_new + p2_net + p1_tfls_draw + p2_tfls_draw + p1_isa_draw + p2_isa_draw))
+            existing_tax_base = p1_sp + p1_db + p1_sipp_draw * (0.75 if ufpls else 1)
+            target_net = shortfall / 2 if mode == "Joint" else shortfall
+            draw_amt = solve_gross_for_net(target_net, existing_tax_base, p1_s, ufpls)
+            p1_sipp_draw += draw_amt; p1_s -= draw_amt
+            
+            # Realtime net state update
+            p1_cur_tax = calc_tax(p1_sp + p1_db + p1_sipp_draw * (0.75 if ufpls else 1))
+            current_net = (p1_sp + p1_db + p1_sipp_draw + p1_tfls_draw + p1_isa_draw - p1_cur_tax) + (p2_sp + p2_db + p2_sipp_draw + p2_tfls_draw + p2_isa_draw - p2_cur_tax)
+            shortfall = max(0, goal - current_net)
 
         if mode == "Joint" and p2_a >= p2_acc_age and p2_s > 0 and shortfall > 0:
-            existing = p2_sp + p2_db + p2_sipp_draw * (0.75 if ufpls else 1)
-            draw = solve_gross_for_net(shortfall, existing, p2_s, ufpls)
-            p2_sipp_draw += draw; p2_s -= draw
-            # Final check if P1 needs to cover more
-            p2_net_new = (p2_sp+p2_db+p2_sipp_draw) - calc_tax(p2_sp+p2_db+p2_sipp_draw*(0.75 if ufpls else 1))
-            shortfall = max(0, goal - (p1_net_new + p2_net_new + p1_tfls_draw + p2_tfls_draw + p1_isa_draw + p2_isa_draw))
+            existing_tax_base = p2_sp + p2_db + p2_sipp_draw * (0.75 if ufpls else 1)
+            draw_amt = solve_gross_for_net(shortfall, existing_tax_base, p2_s, ufpls)
+            p2_sipp_draw += draw_amt; p2_s -= draw_amt
+            
+            p2_cur_tax = calc_tax(p2_sp + p2_db + p2_sipp_draw * (0.75 if ufpls else 1))
+            current_net = (p1_sp + p1_db + p1_sipp_draw + p1_tfls_draw + p1_isa_draw - p1_cur_tax) + (p2_sp + p2_db + p2_sipp_draw + p2_tfls_draw + p2_isa_draw - p2_cur_tax)
+            shortfall = max(0, goal - current_net)
+            
+            # Cross-cover checking
             if shortfall > 0 and p1_a >= p1_acc_age and p1_s > 0:
-                existing = p1_sp + p1_db + p1_sipp_draw * (0.75 if ufpls else 1)
-                draw = solve_gross_for_net(shortfall, existing, p1_s, ufpls)
-                p1_sipp_draw += draw; p1_s -= draw
+                existing_tax_base = p1_sp + p1_db + p1_sipp_draw * (0.75 if ufpls else 1)
+                draw_amt = solve_gross_for_net(shortfall, existing_tax_base, p1_s, ufpls)
+                p1_sipp_draw += draw_amt; p1_s -= draw_amt
 
+    # Final Year-End Tax Resolution
     p1_tax_final = calc_tax(p1_sp + p1_db + p1_sipp_draw * (0.75 if ufpls else 1))
     p2_tax_final = calc_tax(p2_sp + p2_db + p2_sipp_draw * (0.75 if ufpls else 1))
 
@@ -225,7 +259,7 @@ for year in range(41):
         "Total Tax": round(p1_tax_final + p2_tax_final), "Total Wealth": round(p1_s + p2_s + p1_i + p2_i + p1_tfls_pot + p2_tfls_pot), "Spending Goal": round(goal)
     })
     
-    # Apply Growth
+    # Asset compound indexing
     p1_s *= (1+growth); p2_s *= (1+growth); p1_i *= (1+growth); p2_i *= (1+growth); p1_tfls_pot *= (1+growth); p2_tfls_pot *= (1+growth)
 
 df = pd.DataFrame(data_log)
@@ -233,13 +267,13 @@ df = pd.DataFrame(data_log)
 # --- 4. VISUALS ---
 st.subheader("Annual Income Mix & Tax")
 fig1 = go.Figure()
-stack = [
+stack_order = [
     ("P1 SP", "#4A148C"), ("P2 SP", "#1B5E20"), ("P1 DB", "#6A1B9A"), ("P2 DB", "#2E7D32"),
     ("P1 SIPP Draw", "#9C27B0"), ("P2 SIPP Draw", "#4CAF50"), 
     ("P1 TFLS Draw", "#E91E63"), ("P2 TFLS Draw", "#F06292"),
     ("P1 ISA Draw", "#1F77B4"), ("P2 ISA Draw", "#64B5F6")
 ]
-for label, color in stack:
+for label, color in stack_order:
     if label in df.columns:
         fig1.add_trace(go.Bar(x=df['P1 Age'], y=df[label], name=label, marker_color=color))
 
@@ -250,12 +284,12 @@ st.plotly_chart(fig1, use_container_width=True)
 
 st.subheader("Asset Value Over Time")
 fig2 = go.Figure()
-assets = [
+asset_order = [
     ("P1 SIPP Bal", "#9C27B0"), ("P2 SIPP Bal", "#4CAF50"), 
     ("P1 TFLS Pot", "#E91E63"), ("P2 TFLS Pot", "#F06292"),
     ("P1 ISA Bal", "#1F77B4"), ("P2 ISA Bal", "#64B5F6")
 ]
-for label, color in assets:
+for label, color in asset_order:
     if label in df.columns:
         fig2.add_trace(go.Bar(x=df['P1 Age'], y=df[label], name=label, marker_color=color))
 fig2.update_layout(barmode='stack', hovermode="x unified", legend=dict(orientation="h", y=1.1))
