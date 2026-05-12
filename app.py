@@ -9,7 +9,7 @@ st.set_page_config(page_title="Retirement Planner Pro", layout="wide")
 if 'defaults' not in st.session_state:
     st.session_state.defaults = {
         "mode": "Joint", "p1_age": 55, "p2_age": 55, 
-        "p1_isa_bal": 290000.0, "p2_isa_bal": 290000.0,
+        "p1_isa_bal": 280000.0, "p2_isa_bal": 290000.0,
         "p1_sipp": 1200000.0, "p2_sipp": 0.0, "growth": 5.0, "inflation": 2.5,
         "p1_sp_amt": 12548.0, "p2_sp_amt": 12548.0, "p1_db": "", "p2_db": "57:17000",
         "p1_lump_age": 55, "p2_lump_age": 55, "p1_access_age": 55, "p2_access_age": 55,
