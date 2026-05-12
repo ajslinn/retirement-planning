@@ -202,4 +202,63 @@ for year in range(41):
             p1_sipp_draw += draw; p1_s -= draw
         
         # Re-calc shortfall after P1 emergency draw
-        p1_net = (p1_sp + p1_db + p1_sipp_draw) - calc_tax(
+        p1_net = (p1_sp + p1_db + p1_sipp_draw) - calc_tax(p1_sp + p1_db + (p1_sipp_draw * (0.75 if ufpls else 1.0)))
+        shortfall = max(0.0, goal - (p1_net + p2_net + p1_tfls_draw + p2_tfls_draw + p1_isa_draw + p2_isa_draw))
+        
+        if mode == "Joint" and p2_a >= p2_acc_age and p2_s > 0 and shortfall > 0:
+            existing = p2_sp + p2_db + (p2_sipp_draw * (0.75 if ufpls else 1.0))
+            draw = solve_gross_for_net(shortfall, existing, p2_s, ufpls)
+            p2_sipp_draw += draw; p2_s -= draw
+
+    p1_tax = calc_tax(p1_sp + p1_db + (p1_sipp_draw * (0.75 if ufpls else 1.0)))
+    p2_tax = calc_tax(p2_sp + p2_db + (p2_sipp_draw * (0.75 if ufpls else 1.0)))
+
+    data_log.append({
+        "P1 Age": p1_a, "P1 SP": round(p1_sp), "P1 DB": round(p1_db), "P1 SIPP Draw": round(p1_sipp_draw), 
+        "P1 TFLS Draw": round(p1_tfls_draw), "P1 ISA Draw": round(p1_isa_draw), "P1 Tax": round(p1_tax), 
+        "P1 SIPP Bal": round(p1_s), "P1 TFLS Pot": round(p1_tfls_pot), "P1 ISA Bal": round(p1_i),
+        "P2 Age": p2_a, "P2 SP": round(p2_sp), "P2 DB": round(p2_db), "P2 SIPP Draw": round(p2_sipp_draw), 
+        "P2 TFLS Draw": round(p2_tfls_draw), "P2 ISA Draw": round(p2_isa_draw), "P2 Tax": round(p2_tax), 
+        "P2 SIPP Bal": round(p2_s), "P2 TFLS Pot": round(p2_tfls_pot), "P2 ISA Bal": round(p2_i),
+        "Total Tax": round(p1_tax + p2_tax), "Total Wealth": round(p1_s + p2_s + p1_i + p2_i + p1_tfls_pot + p2_tfls_pot), 
+        "Spending Goal": round(goal)
+    })
+    
+    p1_s *= (1+growth); p2_s *= (1+growth); p1_i *= (1+growth); p2_i *= (1+growth)
+    p1_tfls_pot *= (1+growth); p2_tfls_pot *= (1+growth)
+
+df = pd.DataFrame(data_log)
+
+# --- 4. VISUALS ---
+st.subheader("Annual Income Mix & Tax")
+fig1 = go.Figure()
+stack = [
+    ("P1 SP", "#4A148C"), ("P2 SP", "#1B5E20"), ("P1 DB", "#6A1B9A"), ("P2 DB", "#2E7D32"),
+    ("P1 SIPP Draw", "#9C27B0"), ("P2 SIPP Draw", "#4CAF50"), 
+    ("P1 TFLS Draw", "#E91E63"), ("P2 TFLS Draw", "#F06292"),
+    ("P1 ISA Draw", "#1F77B4"), ("P2 ISA Draw", "#64B5F6")
+]
+for label, color in stack:
+    if label in df.columns:
+        fig1.add_trace(go.Bar(x=df['P1 Age'], y=df[label], name=label, marker_color=color))
+
+fig1.add_trace(go.Scatter(x=df['P1 Age'], y=df['Spending Goal'], name="Spending Goal", line=dict(color='black', width=2, dash='dash')))
+fig1.add_trace(go.Scatter(x=df['P1 Age'], y=df['Total Tax'], name="Tax Paid", line=dict(color='red', width=3)))
+fig1.update_layout(barmode='stack', hovermode="x unified", legend=dict(orientation="h", y=1.1))
+st.plotly_chart(fig1, use_container_width=True)
+
+st.subheader("Asset Value Over Time")
+fig2 = go.Figure()
+assets = [
+    ("P1 SIPP Bal", "#9C27B0"), ("P2 SIPP Bal", "#4CAF50"), 
+    ("P1 TFLS Pot", "#E91E63"), ("P2 TFLS Pot", "#F06292"),
+    ("P1 ISA Bal", "#1F77B4"), ("P2 ISA Bal", "#64B5F6")
+]
+for label, color in assets:
+    if label in df.columns:
+        fig2.add_trace(go.Bar(x=df['P1 Age'], y=df[label], name=label, marker_color=color))
+fig2.update_layout(barmode='stack', hovermode="x unified", legend=dict(orientation="h", y=1.1))
+st.plotly_chart(fig2, use_container_width=True)
+
+st.subheader("Yearly Breakdown")
+st.dataframe(df, use_container_width=True)
