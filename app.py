@@ -19,7 +19,7 @@ if 'defaults' not in st.session_state:
 
 # --- 2. SIDEBAR ---
 with st.sidebar:
-    st.header("💾 Profile 2 Management")
+    st.header("💾 Profile Management")
     uploaded_file = st.file_uploader("Upload Profile", type="json")
     if uploaded_file:
         try:
