@@ -24,7 +24,6 @@ with st.sidebar:
     if uploaded_file:
         try:
             loaded_data = json.load(uploaded_file)
-            # Handle potential single-isa field from older profile versions
             if "isa_bal" in loaded_data:
                 loaded_data["p1_isa_bal"] = loaded_data["isa_bal"] / 2
                 loaded_data["p2_isa_bal"] = loaded_data["isa_bal"] / 2
@@ -103,15 +102,19 @@ def calc_tax(income):
 p1_db_map, p2_db_map = parse_kv(p1_db_in), parse_kv(p2_db_in)
 data_log = []
 p1_s, p2_s, p1_i, p2_i = p1_sipp_init, p2_sipp_init, p1_isa_init, p2_isa_init
-p1_tfls_pot, p2_tfls_pot = 0, 0 # New internal pots for tax-free entitlements
+p1_tfls_pot, p2_tfls_pot = 0, 0
 p1_lsa_taken, p2_lsa_taken = 0, 0
 sp_growth = infl + 0.005 if t_lock else infl
 
 for year in range(41):
     p1_a, p2_a = p1_age_start + year, p2_age_start + year
     
-    # 1. Tax-Free Entitlement Calculation (The "Pot Creation")
-    # This logic separates the 25% and moves it to a tax-free pot to be drawn later
+    # 1. Spending Goal (Inflated and Stepped)
+    goal = target_spend * ((1+infl)**year)
+    if p1_a >= s1_age: goal *= (1 - s1_red/100)
+    if p1_a >= s2_age: goal *= (1 - s2_red/100)
+    
+    # 2. TFLS Pot Entitlement (Internal transfer from SIPP to TFLS Pot)
     if not ufpls:
         if p1_a == p1_l_age and p1_a >= 55:
             entitlement = min(p1_s * 0.25, LSA_MAX - p1_lsa_taken)
@@ -124,54 +127,75 @@ for year in range(41):
             p2_tfls_pot += entitlement
             p2_lsa_taken += entitlement
 
-    # 2. Guaranteed Income (Indexed)
+    # 3. Guaranteed Income
     p1_sp = (p1_sp_amt * ((1+sp_growth)**year)) if p1_a >= 67 else 0
     p1_db = sum(v*((1+infl)**year) for k,v in p1_db_map.items() if p1_a >= k)
     p2_sp = (p2_sp_amt * ((1+sp_growth)**year)) if (mode=="Joint" and p2_a >= 67) else 0
     p2_db = sum(v*((1+infl)**year) for k,v in p2_db_map.items() if p2_a >= k)
     
-    # 3. Taxable SIPP Draw Logic
-    if strat == "SIPP to Threshold":
-        p1_draw = max(0, min(p1_s, BR - (p1_sp + p1_db))) if p1_a >= p1_acc_age else 0
-        p2_draw = max(0, min(p2_s, BR - (p2_sp + p2_db))) if (mode=="Joint" and p2_a >= p2_acc_age) else 0
-    else:
-        p1_draw = max(0, min(p1_s, PA - (p1_sp + p1_db))) if p1_a >= p1_acc_age else 0
-        p2_draw = max(0, min(p2_s, PA - (p2_sp + p2_db))) if (mode=="Joint" and p2_a >= p2_acc_age) else 0
+    # 4. Waterfall Drawdown Logic
+    # Start with Net Guaranteed Income
+    p1_tax_on_fixed = calc_tax(p1_sp + p1_db)
+    p2_tax_on_fixed = calc_tax(p2_sp + p2_db)
+    net_income = (p1_sp + p1_db - p1_tax_on_fixed) + (p2_sp + p2_db - p2_tax_on_fixed)
+    
+    shortfall = max(0, goal - net_income)
+    
+    # SIPP Taxable Draws (to meet shortfall OR hit strategy threshold)
+    p1_sipp_draw, p2_sipp_draw = 0, 0
+    if p1_a >= p1_acc_age or (mode == "Joint" and p2_a >= p2_acc_age):
+        # Calculate how much "Taxable Space" we want to use
+        threshold = BR if strat == "SIPP to Threshold" else PA
+        
+        # P1 SIPP Draw
+        if p1_a >= p1_acc_age:
+            max_p1_draw = max(0, threshold - (p1_sp + p1_db))
+            # Draw only what is needed for shortfall, unless strategy is to hit threshold
+            if strat == "SIPP to Threshold":
+                p1_sipp_draw = min(p1_s, max_p1_draw)
+            else:
+                p1_sipp_draw = min(p1_s, max_p1_draw, shortfall / 0.8) # Approx gross-up for BR tax
+        
+        # P2 SIPP Draw
+        if mode == "Joint" and p2_a >= p2_acc_age:
+            max_p2_draw = max(0, threshold - (p2_sp + p2_db))
+            if strat == "SIPP to Threshold":
+                p2_sipp_draw = min(p2_s, max_p2_draw)
+            else:
+                p2_sipp_draw = min(p2_s, max_p2_draw, (shortfall - (p1_sipp_draw*0.8)) / 0.8)
 
-    p1_s -= p1_draw; p2_s -= p2_draw
-    p1_tax = calc_tax(p1_sp + p1_db + (p1_draw * (0.75 if ufpls else 1)))
-    p2_tax = calc_tax(p2_sp + p2_db + (p2_draw * (0.75 if ufpls else 1)))
+    p1_s -= p1_sipp_draw
+    p2_s -= p2_sipp_draw
     
-    # 4. Spending Gap & Drawdown Hierarchy
-    goal = target_spend * ((1+infl)**year)
-    if p1_a >= s1_age: goal *= (1 - s1_red/100)
-    if p1_a >= s2_age: goal *= (1 - s2_red/100)
+    # Recalculate Tax with SIPP Draws
+    p1_total_tax = calc_tax(p1_sp + p1_db + (p1_sipp_draw * (0.75 if ufpls else 1)))
+    p2_total_tax = calc_tax(p2_sp + p2_db + (p2_sipp_draw * (0.75 if ufpls else 1)))
     
-    current_net = (p1_sp + p1_db + p1_draw - p1_tax) + (p2_sp + p2_db + p2_draw - p2_tax)
-    shortfall = max(0, goal - current_net)
-    
-    # Draw from TFLS Pot first (Tax Free)
+    net_income = (p1_sp + p1_db + p1_sipp_draw - p1_total_tax) + (p2_sp + p2_db + p2_sipp_draw - p2_total_tax)
+    shortfall = max(0, goal - net_income)
+
+    # Next: TFLS Pot (Tax Free)
     p1_tfls_draw = min(p1_tfls_pot, shortfall / 2) if mode == "Joint" else min(p1_tfls_pot, shortfall)
     p2_tfls_draw = min(p2_tfls_pot, shortfall - p1_tfls_draw) if mode == "Joint" else 0
-    p1_tfls_pot -= p1_tfls_draw; p2_tfls_pot -= p2_tfls_draw
+    p1_tfls_pot -= p1_tfls_draw
+    p2_tfls_pot -= p2_tfls_draw
     
-    remaining_shortfall = max(0, shortfall - (p1_tfls_draw + p2_tfls_draw))
+    shortfall = max(0, shortfall - (p1_tfls_draw + p2_tfls_draw))
     
-    # Draw from ISA next
-    p1_isa_draw = min(p1_i, remaining_shortfall / 2) if mode == "Joint" else min(p1_i, remaining_shortfall)
-    p2_isa_draw = min(p2_i, remaining_shortfall - p1_isa_draw) if mode == "Joint" else 0
-    p1_i -= p1_isa_draw; p2_i -= p2_isa_draw
+    # Finally: ISA (Tax Free)
+    p1_isa_draw = min(p1_i, shortfall / 2) if mode == "Joint" else min(p1_i, shortfall)
+    p2_isa_draw = min(p2_i, shortfall - p1_isa_draw) if mode == "Joint" else 0
+    p1_i -= p1_isa_draw
+    p2_i -= p2_isa_draw
 
     data_log.append({
-        "P1 Age": p1_a, "P1 SP": round(p1_sp), "P1 DB": round(p1_db), "P1 SIPP Draw": round(p1_draw), "P1 TFLS Draw": round(p1_tfls_draw), "P1 ISA Draw": round(p1_isa_draw), "P1 Tax": round(p1_tax), "P1 SIPP Bal": round(p1_s), "P1 TFLS Pot": round(p1_tfls_pot), "P1 ISA Bal": round(p1_i),
-        "P2 Age": p2_a, "P2 SP": round(p2_sp), "P2 DB": round(p2_db), "P2 SIPP Draw": round(p2_draw), "P2 TFLS Draw": round(p2_tfls_draw), "P2 ISA Draw": round(p2_isa_draw), "P2 Tax": round(p2_tax), "P2 SIPP Bal": round(p2_s), "P2 TFLS Pot": round(p2_tfls_pot), "P2 ISA Bal": round(p2_i),
-        "Total Tax": round(p1_tax + p2_tax), "Total Wealth": round(p1_s + p2_s + p1_i + p2_i + p1_tfls_pot + p2_tfls_pot)
+        "P1 Age": p1_a, "P1 SP": round(p1_sp), "P1 DB": round(p1_db), "P1 SIPP Draw": round(p1_sipp_draw), "P1 TFLS Draw": round(p1_tfls_draw), "P1 ISA Draw": round(p1_isa_draw), "P1 Tax": round(p1_total_tax), "P1 SIPP Bal": round(p1_s), "P1 TFLS Pot": round(p1_tfls_pot), "P1 ISA Bal": round(p1_i),
+        "P2 Age": p2_a, "P2 SP": round(p2_sp), "P2 DB": round(p2_db), "P2 SIPP Draw": round(p2_sipp_draw), "P2 TFLS Draw": round(p2_tfls_draw), "P2 ISA Draw": round(p2_isa_draw), "P2 Tax": round(p2_total_tax), "P2 SIPP Bal": round(p2_s), "P2 TFLS Pot": round(p2_tfls_pot), "P2 ISA Bal": round(p2_i),
+        "Total Tax": round(p1_total_tax + p2_total_tax), "Total Wealth": round(p1_s + p2_s + p1_i + p2_i + p1_tfls_pot + p2_tfls_pot), "Spending Goal": round(goal)
     })
     
-    # 5. Apply Growth at the END of the year to all asset pots
-    p1_s *= (1+growth); p2_s *= (1+growth)
-    p1_i *= (1+growth); p2_i *= (1+growth)
-    p1_tfls_pot *= (1+growth); p2_tfls_pot *= (1+growth)
+    # Apply Growth
+    p1_s *= (1+growth); p2_s *= (1+growth); p1_i *= (1+growth); p2_i *= (1+growth); p1_tfls_pot *= (1+growth); p2_tfls_pot *= (1+growth)
 
 df = pd.DataFrame(data_log)
 
@@ -181,13 +205,15 @@ fig1 = go.Figure()
 stack = [
     ("P1 SP", "#4A148C"), ("P2 SP", "#1B5E20"), ("P1 DB", "#6A1B9A"), ("P2 DB", "#2E7D32"),
     ("P1 SIPP Draw", "#9C27B0"), ("P2 SIPP Draw", "#4CAF50"), 
-    ("P1 TFLS Draw", "#E91E63"), ("P2 TFLS Draw", "#F06292"), # Shows actual withdrawal amount
+    ("P1 TFLS Draw", "#E91E63"), ("P2 TFLS Draw", "#F06292"),
     ("P1 ISA Draw", "#1F77B4"), ("P2 ISA Draw", "#64B5F6")
 ]
 for label, color in stack:
     if label in df.columns:
         fig1.add_trace(go.Bar(x=df['P1 Age'], y=df[label], name=label, marker_color=color))
-fig1.add_trace(go.Scatter(x=df['P1 Age'], y=df['Total Tax'], name="Total Tax Paid", line=dict(color='red', width=3)))
+
+fig1.add_trace(go.Scatter(x=df['P1 Age'], y=df['Spending Goal'], name="Spending Goal", line=dict(color='black', width=2, dash='dash')))
+fig1.add_trace(go.Scatter(x=df['P1 Age'], y=df['Total Tax'], name="Tax Paid", line=dict(color='red', width=3)))
 fig1.update_layout(barmode='stack', hovermode="x unified", legend=dict(orientation="h", y=1.1))
 st.plotly_chart(fig1, use_container_width=True)
 
@@ -195,7 +221,7 @@ st.subheader("Asset Value Over Time")
 fig2 = go.Figure()
 assets = [
     ("P1 SIPP Bal", "#9C27B0"), ("P2 SIPP Bal", "#4CAF50"), 
-    ("P1 TFLS Pot", "#E91E63"), ("P2 TFLS Pot", "#F06292"), # New TFLS asset tracking
+    ("P1 TFLS Pot", "#E91E63"), ("P2 TFLS Pot", "#F06292"),
     ("P1 ISA Bal", "#1F77B4"), ("P2 ISA Bal", "#64B5F6")
 ]
 for label, color in assets:
