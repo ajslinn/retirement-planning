@@ -94,23 +94,36 @@ def parse_kv(text):
     return d
 
 def calc_tax(income):
+    """Calculates UK Income Tax including Personal Allowance tapering."""
     eff_pa = max(0, PA - (max(0, income - TAPER) / 2))
     if income <= eff_pa: return 0.0
     if income <= BR: return (income - eff_pa) * 0.2
     return ((BR - eff_pa) * 0.2) + ((income - BR) * 0.4)
 
 def solve_gross_for_net(net_needed, existing_taxable, available_pot, use_ufpls):
-    if net_needed <= 0 or available_pot <= 0: return 0.0
-    tax_factor = 0.75 if use_ufpls else 1.0
-    low, high = 0.0, float(available_pot)
+    """
+    Calculates the exact Gross SIPP withdrawal needed to produce a target Net.
+    Accounts for the fact that every extra £1 withdrawn might be taxed.
+    """
+    if net_needed <= 1.0 or available_pot <= 0: return 0.0
     
-    # Binary search for exact gross
+    taxable_ratio = 0.75 if use_ufpls else 1.0
+    
+    low, high = 0.0, float(available_pot)
+    base_tax = calc_tax(existing_taxable)
+    
+    # Binary search for the gross figure that results in (Gross - DeltaTax) == net_needed
     for _ in range(30):
         mid = (low + high) / 2
-        tax_at_mid = calc_tax(existing_taxable + (mid * tax_factor))
-        net_at_mid = mid - (tax_at_mid - calc_tax(existing_taxable))
-        if net_at_mid < net_needed: low = mid
-        else: high = mid
+        total_tax = calc_tax(existing_taxable + (mid * taxable_ratio))
+        tax_on_this_draw = total_tax - base_tax
+        net_result = mid - tax_on_this_draw
+        
+        if net_result < net_needed:
+            low = mid
+        else:
+            high = mid
+            
     return high
 
 p1_db_map, p2_db_map = parse_kv(p1_db_in), parse_kv(p2_db_in)
@@ -126,7 +139,7 @@ for year in range(41):
     if p1_a >= s1_age: goal *= (1 - s1_red)
     if p1_a >= s2_age: goal *= (1 - s2_red)
     
-    # Trigger TFLS
+    # Trigger TFLS Crystallisation
     if not ufpls:
         if p1_a == p1_l_age and p1_a >= 55:
             ent = min(p1_s * 0.25, LSA_MAX - p1_lsa_taken)
@@ -135,7 +148,7 @@ for year in range(41):
             ent = min(p2_s * 0.25, LSA_MAX - p2_lsa_taken)
             p2_s -= ent; p2_tfls_pot += ent; p2_lsa_taken += ent
 
-    # Base Incomes
+    # Fixed Guaranteed Incomes
     p1_sp = (p1_sp_amt * ((1+sp_growth)**year)) if p1_a >= 67 else 0
     p1_db = sum(v*((1+infl)**year) for k,v in p1_db_map.items() if p1_a >= k)
     p2_sp = (p2_sp_amt * ((1+sp_growth)**year)) if (mode=="Joint" and p2_a >= 67) else 0
@@ -145,71 +158,75 @@ for year in range(41):
     p2_base_net = (p2_sp + p2_db) - calc_tax(p2_sp + p2_db)
     
     shortfall = max(0.0, goal - (p1_base_net + p2_base_net))
-    p1_sipp_draw, p2_sipp_draw, p1_tfls_draw, p2_tfls_draw, p1_isa_draw, p2_isa_draw = 0,0,0,0,0,0
+    p1_sipp_draw, p2_sipp_draw, p1_tfls_draw, p2_tfls_draw, p1_isa_draw, p2_isa_draw = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
-    # PHASE 1: Efficient SIPP Draws
+    # 1. TAX EFFICIENT SIPP PHASE
+    # (ISA First: Only draws to cover shortfall up to PA. SIPP to Threshold: Draws up to Higher Band)
     if shortfall > 0:
-        threshold = BR if strat == "SIPP to Threshold" else PA
-        # P1 Efficient
+        limit = BR if strat == "SIPP to Threshold" else PA
+        
+        # P1 Draw
         if p1_a >= p1_acc_age and p1_s > 0:
-            max_eff_net = max(0.0, threshold - (p1_sp + p1_db))
+            max_eff_net = max(0.0, limit - (p1_sp + p1_db))
             target_net = shortfall if strat == "ISA First" else max_eff_net
             draw = solve_gross_for_net(min(target_net, max_eff_net), p1_sp + p1_db, p1_s, ufpls)
             p1_sipp_draw += draw; p1_s -= draw
         
-        # P2 Efficient
+        # Recalculate shortfall for P2
         p1_net = (p1_sp + p1_db + p1_sipp_draw) - calc_tax(p1_sp + p1_db + (p1_sipp_draw * (0.75 if ufpls else 1.0)))
         shortfall = max(0.0, goal - (p1_net + p2_base_net))
+        
         if mode == "Joint" and p2_a >= p2_acc_age and p2_s > 0 and shortfall > 0:
-            max_eff_net = max(0.0, threshold - (p2_sp + p2_db))
+            max_eff_net = max(0.0, limit - (p2_sp + p2_db))
             target_net = shortfall if strat == "ISA First" else max_eff_net
             draw = solve_gross_for_net(min(target_net, max_eff_net), p2_sp + p2_db, p2_s, ufpls)
             p2_sipp_draw += draw; p2_s -= draw
 
-    # PHASE 2: Tax-Free Pots (TFLS & ISA)
+    # 2. TAX-FREE DRAW PHASE (TFLS & ISA)
     p1_net = (p1_sp + p1_db + p1_sipp_draw) - calc_tax(p1_sp + p1_db + (p1_sipp_draw * (0.75 if ufpls else 1.0)))
     p2_net = (p2_sp + p2_db + p2_sipp_draw) - calc_tax(p2_sp + p2_db + (p2_sipp_draw * (0.75 if ufpls else 1.0)))
     shortfall = max(0.0, goal - (p1_net + p2_net))
-    
-    for pot in ['tfls', 'isa']:
-        if shortfall <= 0: break
-        # Partner 1
-        rem = p1_tfls_pot if pot == 'tfls' else p1_i
-        draw = min(rem, shortfall / 2 if mode == "Joint" else shortfall)
-        if pot == 'tfls': p1_tfls_draw += draw; p1_tfls_pot -= draw
-        else: p1_isa_draw += draw; p1_i -= draw
-        shortfall -= draw
-        # Partner 2
-        if mode == "Joint" and shortfall > 0:
-            rem2 = p2_tfls_pot if pot == 'tfls' else p2_i
-            draw2 = min(rem2, shortfall)
-            if pot == 'tfls': p2_tfls_draw += draw2; p2_tfls_pot -= draw2
-            else: p2_isa_draw += draw2; p2_i -= draw2
-            shortfall -= draw2
-        # Spillback to P1 if needed
-        if shortfall > 0:
-            rem = p1_tfls_pot if pot == 'tfls' else p1_i
-            draw = min(rem, shortfall)
-            if pot == 'tfls': p1_tfls_draw += draw; p1_tfls_pot -= draw
-            else: p1_isa_draw += draw; p1_i -= draw
-            shortfall -= draw
 
-    # PHASE 3: Emergency SIPP (The "Closer")
+    if shortfall > 0:
+        for pot_type in ['TFLS', 'ISA']:
+            # P1
+            rem = p1_tfls_pot if pot_type == 'TFLS' else p1_i
+            d = min(rem, shortfall / 2 if mode == "Joint" else shortfall)
+            if pot_type == 'TFLS': p1_tfls_draw += d; p1_tfls_pot -= d
+            else: p1_isa_draw += d; p1_i -= d
+            shortfall -= d
+            # P2
+            if mode == "Joint":
+                rem2 = p2_tfls_pot if pot_type == 'TFLS' else p2_i
+                d2 = min(rem2, shortfall)
+                if pot_type == 'TFLS': p2_tfls_draw += d2; p2_tfls_pot -= d2
+                else: p2_isa_draw += d2; p2_i -= d2
+                shortfall -= d2
+                # Backfill P1 if P2 was empty
+                rem = p1_tfls_pot if pot_type == 'TFLS' else p1_i
+                d3 = min(rem, shortfall)
+                if pot_type == 'TFLS': p1_tfls_draw += d3; p1_tfls_pot -= d3
+                else: p1_isa_draw += d3; p1_i -= d3
+                shortfall -= d3
+
+    # 3. EMERGENCY SIPP TOP-UP (Grossed up for Tax)
+    # If shortfall still exists, we must draw more SIPP and pay the required tax to net the remainder.
     if shortfall > 0:
         if p1_a >= p1_acc_age and p1_s > 0:
-            existing = p1_sp + p1_db + (p1_sipp_draw * (0.75 if ufpls else 1.0))
-            draw = solve_gross_for_net(shortfall / 2 if mode == "Joint" else shortfall, existing, p1_s, ufpls)
+            taxable_so_far = p1_sp + p1_db + (p1_sipp_draw * (0.75 if ufpls else 1.0))
+            draw = solve_gross_for_net(shortfall / 2 if mode == "Joint" else shortfall, taxable_so_far, p1_s, ufpls)
             p1_sipp_draw += draw; p1_s -= draw
-        
-        # Re-calc shortfall after P1 emergency draw
-        p1_net = (p1_sp + p1_db + p1_sipp_draw) - calc_tax(p1_sp + p1_db + (p1_sipp_draw * (0.75 if ufpls else 1.0)))
-        shortfall = max(0.0, goal - (p1_net + p2_net + p1_tfls_draw + p2_tfls_draw + p1_isa_draw + p2_isa_draw))
+            
+        # Re-calc for P2
+        p1_net_f = (p1_sp + p1_db + p1_sipp_draw) - calc_tax(p1_sp + p1_db + (p1_sipp_draw * (0.75 if ufpls else 1.0)))
+        shortfall = max(0.0, goal - (p1_net_f + p2_net + p1_tfls_draw + p2_tfls_draw + p1_isa_draw + p2_isa_draw))
         
         if mode == "Joint" and p2_a >= p2_acc_age and p2_s > 0 and shortfall > 0:
-            existing = p2_sp + p2_db + (p2_sipp_draw * (0.75 if ufpls else 1.0))
-            draw = solve_gross_for_net(shortfall, existing, p2_s, ufpls)
+            taxable_so_far = p2_sp + p2_db + (p2_sipp_draw * (0.75 if ufpls else 1.0))
+            draw = solve_gross_for_net(shortfall, taxable_so_far, p2_s, ufpls)
             p2_sipp_draw += draw; p2_s -= draw
 
+    # Final Tax Accounting for the log
     p1_tax = calc_tax(p1_sp + p1_db + (p1_sipp_draw * (0.75 if ufpls else 1.0)))
     p2_tax = calc_tax(p2_sp + p2_db + (p2_sipp_draw * (0.75 if ufpls else 1.0)))
 
@@ -224,6 +241,7 @@ for year in range(41):
         "Spending Goal": round(goal)
     })
     
+    # Apply Growth
     p1_s *= (1+growth); p2_s *= (1+growth); p1_i *= (1+growth); p2_i *= (1+growth)
     p1_tfls_pot *= (1+growth); p2_tfls_pot *= (1+growth)
 
